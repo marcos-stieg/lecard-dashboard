@@ -758,20 +758,20 @@
 </head>
 <body>
     <!-- FLOATING ACTION MENU -->
-    <div class="floating-actions">
+    <div class="floating-actions" id="floatingActions">
         <button class="floating-btn primary" onclick="app.setMode('edit')" id="editBtn">
             ✏️ Editar Dados
         </button>
-        <button class="floating-btn" onclick="app.showSettings()">
+        <button class="floating-btn" onclick="app.showSettings()" style="display: none;">
             ⚙️ Configurações
         </button>
-        <button class="floating-btn" onclick="app.addVendor()">
+        <button class="floating-btn" onclick="app.addVendor()" style="display: none;">
             ➕ Adicionar Vendedor
         </button>
-        <button class="floating-btn" onclick="app.exportData()">
+        <button class="floating-btn" onclick="app.exportData()" style="display: none;">
             📤 Exportar Dados
         </button>
-        <button class="floating-btn success" onclick="app.importExcel()">
+        <button class="floating-btn success" onclick="app.importExcel()" style="display: none;">
             📥 Importar Dados
         </button>
     </div>
@@ -791,17 +791,21 @@
             <button class="add-page-btn" onclick="app.addPage()" style="margin-top: 16px;">
                 ➕ Nova Página
             </button>
+            <!-- Back button for page navigation -->
+            <button class="add-page-btn" onclick="app.goBack()" style="margin-top: 8px;">
+                ← Voltar
+            </button>
         </div>
 
         <div class="sidebar-section">
             <div class="sidebar-section-title">Atalhos</div>
-            <div class="page-item" onclick="app.showDataEditor()">
+            <div class="page-item" id="dataEditorItem" style="display: none;" onclick="app.showDataEditor()">
                 <div class="page-item-info">
                     <span>📊</span>
                     <span>Editor de Dados</span>
                 </div>
             </div>
-            <div class="page-item" onclick="app.showPhotoManager()">
+            <div class="page-item" id="photoManagerItem" style="display: none;" onclick="app.showPhotoManager()">
                 <div class="page-item-info">
                     <span>📸</span>
                     <span>Gerenciar Fotos</span>
@@ -925,9 +929,16 @@
                         revenueGoal: 297000,
                         cardsGoal: 540
                     }
-                };
+        };
 
-                this.init();
+        // History stack for page navigation (back button)
+        this.history = [];
+
+        this.init();
+        // Always start in view mode regardless of saved mode
+        this.state.mode = 'view';
+        // Apply initial mode to set visibility of admin elements
+        this.setMode('view');
             }
 
             init() {
@@ -994,7 +1005,19 @@
             }
 
             setCurrentPage(pageId) {
+                // Save current page to history for back navigation
+                if (this.state.currentPageId !== null && this.state.currentPageId !== pageId) {
+                    this.history.push(this.state.currentPageId);
+                }
                 this.setState({ currentPageId: pageId });
+            }
+
+            // Navigate back to the previous page if available
+            goBack() {
+                const prevId = this.history.pop();
+                if (prevId) {
+                    this.setState({ currentPageId: prevId });
+                }
             }
 
             getCurrentPage() {
@@ -1147,7 +1170,13 @@
                     const reader = new FileReader();
                     reader.onload = (e) => {
                         const name = file.name.replace(/\.[^/.]+$/, "");
+                        // Store both original and normalized names for flexible lookup
+                        const normalizedKey = name.normalize('NFD')
+                            .replace(/[\u0300-\u036f]/g, '')
+                            .replace(/\W+/g, '')
+                            .toLowerCase();
                         this.state.photos[name] = e.target.result;
+                        this.state.photos[normalizedKey] = e.target.result;
                         this.renderPhotoGrid();
                         this.saveToStorage();
                     };
@@ -1308,7 +1337,14 @@
                             const position = index + 1;
                             const positionText = position === 1 ? '1º' : position === 2 ? '2º' : position === 3 ? '3º' : `${position}º`;
                             const medal = position === 1 ? '🥇' : position === 2 ? '🥈' : position === 3 ? '🥉' : '🏅';
-                            const photoUrl = this.state.photos[row.Nome] || 
+                            // Normalize the consultant's name to look up photos saved with normalized keys
+                            const normalizedName = row.Nome
+                                .normalize('NFD')
+                                .replace(/[\u0300-\u036f]/g, '')
+                                .replace(/\W+/g, '')
+                                .toLowerCase();
+                            const photoUrl = this.state.photos[row.Nome] ||
+                                           this.state.photos[normalizedName] ||
                                            `https://ui-avatars.com/api/?name=${encodeURIComponent(row.Nome)}&background=FCD34D&color=2D2D2D&size=100`;
 
                             return `
@@ -1447,7 +1483,35 @@
 
             setMode(mode) {
                 this.state.mode = mode;
+                // Show or hide admin-only UI elements based on the current mode
+                const floatingActions = document.getElementById('floatingActions');
+                const dataEditorItem = document.getElementById('dataEditorItem');
+                const photoManagerItem = document.getElementById('photoManagerItem');
                 const editBtn = document.getElementById('editBtn');
+                if (floatingActions) {
+                    // Always display the container so that the edit toggle is reachable
+                    floatingActions.style.display = 'flex';
+                    const buttons = floatingActions.querySelectorAll('.floating-btn');
+                    if (mode === 'edit') {
+                        buttons.forEach(btn => btn.style.display = 'flex');
+                        // Show admin-only sidebar items
+                        if (dataEditorItem) dataEditorItem.style.display = 'block';
+                        if (photoManagerItem) photoManagerItem.style.display = 'block';
+                    } else {
+                        // In view mode, hide all action buttons except the edit toggle
+                        buttons.forEach(btn => {
+                            if (btn.id === 'editBtn') {
+                                btn.style.display = 'flex';
+                            } else {
+                                btn.style.display = 'none';
+                            }
+                        });
+                        if (dataEditorItem) dataEditorItem.style.display = 'none';
+                        if (photoManagerItem) photoManagerItem.style.display = 'none';
+                    }
+                }
+
+                // reuse the previously declared editBtn variable
                 if (mode === 'edit') {
                     editBtn.innerHTML = '👁️ Modo Visualização';
                     editBtn.onclick = () => this.setMode('view');
