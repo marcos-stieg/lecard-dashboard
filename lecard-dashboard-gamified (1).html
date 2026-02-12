@@ -2198,8 +2198,14 @@
                     if (!isNaN(parsed)) {
                         newValue = parsed;
                     }
+                }
+                // Atualiza o valor do vendedor e persiste
+                this.state.data.rows[index][field] = newValue;
+                this.saveToStorage();
+                this.render();
+            }
 
-    /**
+            /**
      * Adiciona um novo vendedor à lista. Solicita ao usuário o nome e os valores iniciais
      * para contratos, faturamento, cartões e badges. Também inicializa as estruturas
      * de KPIs mensais e fotos para o novo vendedor e recalcula totais mensais.
@@ -2303,11 +2309,6 @@
         this.saveToStorage();
         this.render();
     }
-                }
-                this.state.data.rows[index][field] = newValue;
-                this.saveToStorage();
-                this.render();
-            }
 
             /**
              * Manipulador para elementos numéricos com data-edit-path. Chama editPath com o caminho definido.
