@@ -1126,14 +1126,21 @@
             }
 
             loadDemoData() {
+                // Atualiza a lista de vendedores para o ranking comercial
+                // conforme os dados fornecidos pelo gestor. Cada objeto
+                // representa um vendedor com o número de contratos,
+                // faturamento e cartões emitidos. O nível e o número
+                // de badges foram definidos como Bronze e 0 por padrão.
                 this.state.data.rows = [
-                    { Nome: 'Alisson', Contratos: 10, Faturamento: 364450, Cartoes: 89, Nivel: 'Diamante', Badges: 8 },
-                    { Nome: 'Sarah', Contratos: 6, Faturamento: 256150, Cartoes: 386, Nivel: 'Ouro', Badges: 5 },
-                    { Nome: 'Vitor F.', Contratos: 22, Faturamento: 180940, Cartoes: 341, Nivel: 'Platina', Badges: 6 },
-                    { Nome: 'João Silva', Contratos: 8, Faturamento: 145000, Cartoes: 156, Nivel: 'Prata', Badges: 3 },
-                    { Nome: 'Maria Santos', Contratos: 5, Faturamento: 98000, Cartoes: 178, Nivel: 'Bronze', Badges: 2 },
-                    { Nome: 'Carlos Lima', Contratos: 12, Faturamento: 220000, Cartoes: 195, Nivel: 'Ouro', Badges: 4 },
-                    { Nome: 'Ana Costa', Contratos: 9, Faturamento: 185000, Cartoes: 167, Nivel: 'Prata', Badges: 3 }
+                    { Nome: 'Fernando',   Contratos: 5, Faturamento: 22000, Cartoes: 14, Nivel: 'Bronze', Badges: 0 },
+                    { Nome: 'Thaislayne',  Contratos: 9, Faturamento: 15200, Cartoes: 96, Nivel: 'Bronze', Badges: 0 },
+                    { Nome: 'Sarah',       Contratos: 3, Faturamento: 15000, Cartoes: 17, Nivel: 'Bronze', Badges: 0 },
+                    { Nome: 'Bruna',       Contratos: 7, Faturamento:  8000, Cartoes: 14, Nivel: 'Bronze', Badges: 0 },
+                    { Nome: 'Alisson',     Contratos: 1, Faturamento:  3000, Cartoes: 11, Nivel: 'Bronze', Badges: 0 },
+                    { Nome: 'Vitor F.',    Contratos: 3, Faturamento:  3000, Cartoes:  9, Nivel: 'Bronze', Badges: 0 },
+                    { Nome: 'Luiza',       Contratos: 0, Faturamento:     0, Cartoes:  0, Nivel: 'Bronze', Badges: 0 },
+                    { Nome: 'Larissa',     Contratos: 0, Faturamento:     0, Cartoes:  0, Nivel: 'Bronze', Badges: 0 },
+                    { Nome: 'Gizely',      Contratos: 0, Faturamento:     0, Cartoes:  0, Nivel: 'Bronze', Badges: 0 }
                 ];
             }
 
