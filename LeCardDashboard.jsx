@@ -73,8 +73,10 @@ const getVendorThermal = (statusObj) => {
   if (diff >= 2) return 'freezing';
   return 'normal';
 };
-const thermalEmoji = { fire: '🔥', freezing: '🥶', normal: '' };
-const thermalLabel = { fire: 'Pegando Fogo!', freezing: 'Congelando...', normal: '' };
+// Map thermal status to emoji. Use a check mark for the normal state so users know vendors
+// can be “normal” (neither on fire nor frozen).
+const thermalEmoji = { fire: '🔥', freezing: '🥶', normal: '✅' };
+const thermalLabel = { fire: 'Pegando Fogo!', freezing: 'Congelando...', normal: 'Normal' };
 
 const achievements = [
   { icon: '🔥', name: 'Em Chamas', desc: '7 dias consecutivos batendo meta', locked: false },
@@ -542,6 +544,11 @@ export default function LeCardDashboard() {
             {isFreeze && (
               <span className="freeze-badge" style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 20, textTransform: 'uppercase', letterSpacing: 1, marginLeft: 4 }}>
                 🥶 Congelando
+              </span>
+            )}
+            {!isFire && !isFreeze && (
+              <span className="normal-badge" style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 20, textTransform: 'uppercase', letterSpacing: 1, marginLeft: 4, background: 'rgba(16,185,129,0.15)', color: '#10B981' }}>
+                ✅ Normal
               </span>
             )}
             {editMode && (
