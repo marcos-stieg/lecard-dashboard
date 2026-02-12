@@ -73,10 +73,8 @@ const getVendorThermal = (statusObj) => {
   if (diff >= 2) return 'freezing';
   return 'normal';
 };
-// Map thermal status to emoji. Use a check mark for the normal state so users know vendors
-// can be “normal” (neither on fire nor frozen).
-const thermalEmoji = { fire: '🔥', freezing: '🥶', normal: '✅' };
-const thermalLabel = { fire: 'Pegando Fogo!', freezing: 'Congelando...', normal: 'Normal' };
+const thermalEmoji = { fire: '🔥', freezing: '🥶', normal: '' };
+const thermalLabel = { fire: 'Pegando Fogo!', freezing: 'Congelando...', normal: '' };
 
 const achievements = [
   { icon: '🔥', name: 'Em Chamas', desc: '7 dias consecutivos batendo meta', locked: false },
@@ -141,41 +139,14 @@ export default function LeCardDashboard() {
     return () => { if (es) es.close(); };
   }, []);
 
-  // Periodically poll the backend in case Server-Sent Events are not supported (e.g., on GitHub Pages).
-  useEffect(() => {
-    const pollInterval = setInterval(async () => {
-      try {
-        const data = await fbGet('state');
-        // Update local state only if the data changed to avoid unnecessary re-renders.
-        setState(prev => {
-          try {
-            if (!prev) return data;
-            const prevStr = JSON.stringify(prev);
-            const newStr = JSON.stringify(data);
-            if (prevStr !== newStr) {
-              // Skip saving when applying external update
-              skipSave.current = true;
-              return data;
-            }
-          } catch {
-            // Fallback: always update if comparison fails
-            skipSave.current = true;
-            return data;
-          }
-          return prev;
-        });
-        setSyncStatus('connected');
-      } catch {
-        setSyncStatus('offline');
-      }
-    }, 10000); // poll every 10 seconds
-    return () => clearInterval(pollInterval);
-  }, []);
-
   // Save to Firebase when state changes
   useEffect(() => {
     if (skipSave.current) { skipSave.current = false; return; }
     if (!state) return;
+    // Avoid overwriting the remote database with an empty vendor list. Only save
+    // when there are vendors present. This helps prevent situations where
+    // toggling edit mode with an empty state wipes all data from Firebase.
+    if ((state?.data?.rows || []).length === 0) return;
     fbSet('state', state).then(() => setSyncStatus('connected')).catch(() => setSyncStatus('offline'));
   }, [state]);
 
@@ -401,41 +372,18 @@ export default function LeCardDashboard() {
     showToast(`🔥 ${seller.Nome} está pegando fogo! Venda registrada hoje!`);
   };
 
-  // Toggle the thermal status of a vendor in a cyclic manner: freezing → normal → fire → freezing.
-  // When called, this function inspects the current status (fire/normal/freezing)
-  // and adjusts the vendorStatus object accordingly. A manual freeze (forcedFreeze)
-  // overrides sale-date logic. To switch to 'normal', we set the last sale date to yesterday;
-  // to switch to 'fire', we set the last sale date to today. To switch to 'freezing',
-  // we enable forcedFreeze. This allows editors to cycle through the three states interactively.
-  const toggleThermalStatus = (index) => {
+  // Toggle manual freeze status for a vendor. When forced freeze is enabled,
+  // the vendor will always appear as 'Congelando' regardless of last sale date.
+  const toggleFreezeVendor = (index) => {
     const seller = rows[index];
-    const vs = state.vendorStatus?.[index] || {};
-    const currentStatus = getVendorThermal(vs);
+    const currentForced = state.vendorStatus?.[index]?.forcedFreeze || false;
     updateState(s => {
       if (!s.vendorStatus) s.vendorStatus = {};
       const st = s.vendorStatus[index] || {};
-      if (currentStatus === 'freezing') {
-        // Currently frozen → set to normal by unfreezing and setting lastSaleDate to yesterday
-        st.forcedFreeze = false;
-        // Compute yesterday's date
-        const today = new Date();
-        const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
-        const yStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
-        st.lastSaleDate = yStr;
-      } else if (currentStatus === 'normal') {
-        // Currently normal → set to fire by marking a sale today
-        st.forcedFreeze = false;
-        st.lastSaleDate = getToday();
-      } else {
-        // Currently on fire → set to freezing via forced freeze
-        st.forcedFreeze = true;
-      }
+      st.forcedFreeze = !currentForced;
       s.vendorStatus[index] = st;
     });
-    // Show toast based on new status
-    const nextStatus = (currentStatus === 'freezing') ? 'normal' : (currentStatus === 'normal' ? 'fire' : 'freezing');
-    const statusLabel = nextStatus === 'fire' ? 'pegando fogo' : nextStatus === 'normal' ? 'normal' : 'congelado';
-    showToast(`${seller?.Nome || 'Vendedor'} agora está ${statusLabel}!`, 'info');
+    showToast(`${seller?.Nome || 'Vendedor'} ${currentForced ? 'descongelado' : 'congelado'}`, currentForced ? 'success' : 'info');
   };
 
   // ==================== STYLES ====================
@@ -546,21 +494,9 @@ export default function LeCardDashboard() {
                 🥶 Congelando
               </span>
             )}
-            {!isFire && !isFreeze && (
-              <span className="normal-badge" style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 20, textTransform: 'uppercase', letterSpacing: 1, marginLeft: 4, background: 'rgba(16,185,129,0.15)', color: '#10B981' }}>
-                ✅ Normal
-              </span>
-            )}
             {editMode && (
-              <span
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleThermalStatus(origIndex);
-                }}
-                style={{ marginLeft: 6, cursor: 'pointer', fontSize: 14, color: colors.yellow }}
-                title="Alternar status (congelado / normal / fogo)"
-              >
-                🔁
+              <span onClick={(e) => { e.stopPropagation(); toggleFreezeVendor(origIndex); }} style={{ marginLeft: 6, cursor: 'pointer', fontSize: 14, color: colors.yellow }} title={isForced ? 'Descongelar' : 'Congelar'}>
+                {isForced ? '🧊' : '❄️'}
               </span>
             )}
             <span onClick={(e) => { e.stopPropagation(); editVendorMonthlyKPIs(origIndex); }} style={{ marginLeft: 6, cursor: 'pointer', fontSize: 14, color: colors.yellow }} title="Editar KPIs mensais">📅</span>
