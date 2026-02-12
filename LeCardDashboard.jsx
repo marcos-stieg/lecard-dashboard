@@ -1,209 +1,884 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
-/**
- * LeCardDashboard – versão em React do dashboard gamificado.
- *
- * Este componente replica o layout básico do HTML original e inclui
- * funcionalidades de edição, adição e remoção de vendedores. Os dados
- * são mantidos no estado local (useState). Para persistir ou
- * compartilhar as alterações, seria necessário conectar este código
- * a um backend ou outro serviço de armazenamento.
- */
+// ==================== FIREBASE CONFIG ====================
+const FIREBASE_DB_URL = 'https://acompanhamento-comercial-a28ab-default-rtdb.firebaseio.com';
+
+async function fbGet(path) {
+  const res = await fetch(`${FIREBASE_DB_URL}/${path}.json`);
+  return res.json();
+}
+async function fbSet(path, data) {
+  await fetch(`${FIREBASE_DB_URL}/${path}.json`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+}
+
+// ==================== DEFAULT DATA ====================
+const defaultState = {
+  data: {
+    rows: [
+      { Nome: 'Fernando', Contratos: 5, Faturamento: 22000, Cartoes: 14, Nivel: 'Bronze', Badges: 0 },
+      { Nome: 'Thaislayne', Contratos: 9, Faturamento: 15200, Cartoes: 96, Nivel: 'Bronze', Badges: 0 },
+      { Nome: 'Sarah', Contratos: 3, Faturamento: 15000, Cartoes: 17, Nivel: 'Bronze', Badges: 0 },
+      { Nome: 'Bruna', Contratos: 7, Faturamento: 8000, Cartoes: 14, Nivel: 'Bronze', Badges: 0 },
+      { Nome: 'Alisson', Contratos: 1, Faturamento: 3000, Cartoes: 11, Nivel: 'Bronze', Badges: 0 },
+      { Nome: 'Vitor F.', Contratos: 3, Faturamento: 3000, Cartoes: 9, Nivel: 'Bronze', Badges: 0 },
+      { Nome: 'Luiza', Contratos: 0, Faturamento: 0, Cartoes: 0, Nivel: 'Bronze', Badges: 0 },
+      { Nome: 'Larissa', Contratos: 0, Faturamento: 0, Cartoes: 0, Nivel: 'Bronze', Badges: 0 },
+      { Nome: 'Gizely', Contratos: 0, Faturamento: 0, Cartoes: 0, Nivel: 'Bronze', Badges: 0 }
+    ]
+  },
+  goals: {
+    meta2026: 600000000, base2025: 226000000, gap: 36338000,
+    vendedoresInternos: 7, vendedoresExternos: 50,
+    metaMensalInterno: 297000, metaMensalExterno: 45000
+  },
+  projections: { internosTotal: 162162000, externosTotal: 175500000, projecaoTotal: 563662000 },
+  cardValues: { revenue: null, contracts: null, cards: null, ticketMedio: null },
+  photos: {},
+  monthlyKPIs: { '2026-01': { revenue: 0, contracts: 0, cards: 0, manual: {} }, '2026-02': { revenue: 0, contracts: 0, cards: 0, manual: {} } },
+  vendorMonthlyKPIs: {},
+  customizations: { texts: {}, colors: {}, logo: '' },
+  vendorStatus: {} // { [index]: { lastSaleDate: 'YYYY-MM-DD' } }
+};
+
+// ==================== HELPERS ====================
+const formatCurrency = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v || 0);
+const formatNumber = (v) => new Intl.NumberFormat('pt-BR').format(Math.round(v || 0));
+const formatCompact = (v) => { if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M'; if (v >= 1e3) return (v / 1e3).toFixed(0) + 'K'; return String(v); };
+
+const getLevel = (pct) => { if (pct >= 110) return 'Diamante'; if (pct >= 90) return 'Platina'; if (pct >= 70) return 'Ouro'; if (pct >= 40) return 'Prata'; return 'Bronze'; };
+const getLevelClass = (l) => l.toLowerCase();
+const levelColors = { bronze: '#CD7F32', prata: '#C0C0C0', ouro: '#FFD700', platina: '#E5E4E2', diamante: '#B9F2FF' };
+
+const toNumber = (val) => { if (val === null || val === undefined) return 0; const n = val.toString().replace(/[^0-9,.\-]/g, '').replace(',', '.'); const p = parseFloat(n); return isNaN(p) ? 0 : p; };
+
+const monthNames = { '01': 'Jan', '02': 'Fev', '03': 'Mar', '04': 'Abr', '05': 'Mai', '06': 'Jun', '07': 'Jul', '08': 'Ago', '09': 'Set', '10': 'Out', '11': 'Nov', '12': 'Dez' };
+const fmtMonth = (s) => { if (!s) return ''; const p = s.split('-'); return p.length === 2 ? `${monthNames[p[1]] || p[1]}/${p[0]}` : s; };
+
+const getToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+const daysDiff = (dateStr) => { if (!dateStr) return 999; const d = new Date(dateStr + 'T00:00:00'); const now = new Date(); now.setHours(0,0,0,0); return Math.floor((now - d) / 86400000); };
+// Determine the thermal status of a vendor.
+// If the vendor has been manually frozen via the `forcedFreeze` flag,
+// always return 'freezing'. Otherwise fall back to last sale date logic.
+const getVendorThermal = (statusObj) => {
+  // Manual freeze overrides last sale logic
+  if (statusObj && statusObj.forcedFreeze) return 'freezing';
+  // Without any sale date, treat as freezing by default
+  if (!statusObj || !statusObj.lastSaleDate) return 'freezing';
+  const diff = daysDiff(statusObj.lastSaleDate);
+  if (diff === 0) return 'fire';
+  if (diff >= 2) return 'freezing';
+  return 'normal';
+};
+const thermalEmoji = { fire: '🔥', freezing: '🥶', normal: '' };
+const thermalLabel = { fire: 'Pegando Fogo!', freezing: 'Congelando...', normal: '' };
+
+const achievements = [
+  { icon: '🔥', name: 'Em Chamas', desc: '7 dias consecutivos batendo meta', locked: false },
+  { icon: '⚡', name: 'Relâmpago', desc: '10 contratos em 1 dia', locked: false },
+  { icon: '🚀', name: 'Foguete', desc: 'Bater 150% da meta mensal', locked: true },
+  { icon: '👑', name: 'Rei/Rainha', desc: '#1 do ranking por 3 meses', locked: true },
+  { icon: '💎', name: 'Diamante Bruto', desc: 'Maior contrato do mês', locked: false },
+  { icon: '🎯', name: 'Atirador de Elite', desc: '95%+ de conversão', locked: true },
+  { icon: '🏆', name: 'Campeão', desc: 'Bater meta 12 meses seguidos', locked: true },
+  { icon: '⭐', name: 'Estrela Cadente', desc: 'Crescimento de 200% em 1 mês', locked: true }
+];
+
+// ==================== MAIN COMPONENT ====================
 export default function LeCardDashboard() {
-  // Estado inicial para os vendedores
-  const [vendors, setVendors] = useState([
-    { name: 'Fernando', contracts: 5, revenue: 22000, cards: 14 },
-    { name: 'Thaislayne', contracts: 9, revenue: 15200, cards: 96 },
-    { name: 'Sarah', contracts: 3, revenue: 15000, cards: 17 },
-    { name: 'Bruna', contracts: 7, revenue: 8000, cards: 14 },
-    { name: 'Alisson', contracts: 1, revenue: 3000, cards: 11 },
-    { name: 'Vitor F.', contracts: 3, revenue: 3000, cards: 9 },
-    { name: 'Luiza', contracts: 0, revenue: 0, cards: 0 },
-    { name: 'Larissa', contracts: 0, revenue: 0, cards: 0 },
-    { name: 'Gizely', contracts: 0, revenue: 0, cards: 0 }
-  ]);
-
-  // Modo de edição ativa ou inativa
+  const [state, setState] = useState(null);
+  const [page, setPage] = useState('dashboard');
   const [editMode, setEditMode] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [syncStatus, setSyncStatus] = useState('connecting');
+  const [toast, setToast] = useState(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [sidebarHidden, setSidebarHidden] = useState(false);
+  const skipSave = useRef(true);
 
-  // Calcula totais a partir da lista de vendedores
-  const totals = vendors.reduce(
-    (acc, v) => {
-      acc.contracts += v.contracts;
-      acc.revenue += v.revenue;
-      acc.cards += v.cards;
-      return acc;
-    },
-    { contracts: 0, revenue: 0, cards: 0 }
+  const showToast = useCallback((msg, type = 'success') => {
+    setToast({ msg, type }); setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  // ==================== FIREBASE SYNC ====================
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await fbGet('state');
+        if (data && data.data && data.data.rows) {
+          setState(data);
+        } else {
+          await fbSet('state', defaultState);
+          setState(defaultState);
+        }
+        setSyncStatus('connected');
+      } catch {
+        setState(defaultState);
+        setSyncStatus('offline');
+      } finally { setLoading(false); }
+    })();
+  }, []);
+
+  // SSE listener
+  useEffect(() => {
+    let es;
+    try {
+      es = new EventSource(`${FIREBASE_DB_URL}/state.json`);
+      es.onmessage = (e) => {
+        try {
+          const d = JSON.parse(e.data);
+          if (d && d.data && d.data.rows) { setState(d); setSyncStatus('connected'); }
+        } catch {}
+      };
+      es.onerror = () => setSyncStatus('reconnecting');
+      es.onopen = () => setSyncStatus('connected');
+    } catch { setSyncStatus('offline'); }
+    return () => { if (es) es.close(); };
+  }, []);
+
+  // Save to Firebase when state changes
+  useEffect(() => {
+    if (skipSave.current) { skipSave.current = false; return; }
+    if (!state) return;
+    fbSet('state', state).then(() => setSyncStatus('connected')).catch(() => setSyncStatus('offline'));
+  }, [state]);
+
+  if (loading || !state) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#111827', fontFamily: "'Inter',sans-serif" }}>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ width: 50, height: 50, margin: '0 auto 16px', border: '4px solid rgba(252,211,77,0.2)', borderTopColor: '#FCD34D', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+        <p style={{ color: '#FCD34D', fontSize: 16, fontWeight: 600 }}>Conectando ao Firebase...</p>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    </div>
   );
-  const ticketMedio = totals.contracts > 0 ? totals.revenue / totals.contracts : 0;
 
-  // Troca entre modo visualização e edição
-  const toggleEditMode = () => setEditMode(!editMode);
+  // ==================== COMPUTED VALUES ====================
+  const rows = state.data?.rows || [];
+  const goals = state.goals || defaultState.goals;
+  const projections = state.projections || defaultState.projections;
+  const cardVals = state.cardValues || {};
+  const photos = state.photos || {};
 
-  // Adiciona um novo vendedor solicitando dados via prompt
+  const totals = rows.reduce((a, r) => ({
+    contracts: a.contracts + (parseFloat(r.Contratos) || 0),
+    revenue: a.revenue + (parseFloat(r.Faturamento) || 0),
+    cards: a.cards + (parseFloat(r.Cartoes) || 0)
+  }), { contracts: 0, revenue: 0, cards: 0 });
+
+  const numVendors = rows.length;
+  const sectorGoals = { contracts: 15 * numVendors, revenue: 297000 * numVendors, cards: 540 * numVendors };
+  const achRevenue = sectorGoals.revenue ? ((totals.revenue / sectorGoals.revenue) * 100).toFixed(1) : '0.0';
+  const achContracts = sectorGoals.contracts ? ((totals.contracts / sectorGoals.contracts) * 100).toFixed(1) : '0.0';
+
+  const revenueVal = cardVals.revenue ?? totals.revenue;
+  const contractsVal = cardVals.contracts ?? totals.contracts;
+  const cardsVal = cardVals.cards ?? totals.cards;
+  const defTicket = contractsVal ? (revenueVal / contractsVal) : (totals.contracts ? (totals.revenue / totals.contracts) : 0);
+  const ticketVal = cardVals.ticketMedio ?? defTicket;
+
+  const ranking = [...rows].sort((a, b) => (parseFloat(b.Faturamento) || 0) - (parseFloat(a.Faturamento) || 0));
+
+  // ==================== STATE UPDATERS ====================
+  const updateState = (fn) => setState(prev => { const next = JSON.parse(JSON.stringify(prev)); fn(next); return next; });
+
+  const editPrompt = (label, current) => {
+    const input = window.prompt(label, current);
+    if (input === null) return null;
+    return toNumber(input);
+  };
+
+  const editCardValue = (field) => {
+    if (!editMode) return;
+    const current = cardVals[field] ?? (field === 'revenue' ? totals.revenue : field === 'contracts' ? totals.contracts : field === 'cards' ? totals.cards : defTicket);
+    const v = editPrompt(`Novo valor para ${field}:`, current);
+    if (v === null) return;
+    updateState(s => { if (!s.cardValues) s.cardValues = {}; s.cardValues[field] = v; });
+  };
+
+  const editSeller = (origIndex, field) => {
+    if (!editMode) return;
+    const seller = rows[origIndex];
+    if (!seller) return;
+    const current = seller[field];
+    const input = window.prompt(`Novo valor para ${field} de ${seller.Nome}:`, current);
+    if (input === null) return;
+    const newVal = ['Contratos', 'Faturamento', 'Cartoes', 'Badges'].includes(field) ? toNumber(input) : input.trim();
+    updateState(s => {
+      s.data.rows[origIndex][field] = newVal;
+      // Auto-register sale date when contracts increase
+      if (field === 'Contratos' && newVal > (parseFloat(seller.Contratos) || 0)) {
+        if (!s.vendorStatus) s.vendorStatus = {};
+        s.vendorStatus[origIndex] = { lastSaleDate: getToday() };
+      }
+    });
+    showToast(`${seller.Nome} atualizado!`);
+  };
+
   const addVendor = () => {
     const name = window.prompt('Nome do novo vendedor:');
-    if (!name) return;
-    const contracts = parseFloat(window.prompt('Contratos iniciais:', '0')) || 0;
-    const revenue = parseFloat(window.prompt('Faturamento inicial (R$):', '0')) || 0;
-    const cards = parseFloat(window.prompt('Cartões iniciais:', '0')) || 0;
-    setVendors([...vendors, { name: name.trim(), contracts, revenue, cards }]);
+    if (!name || !name.trim()) return;
+    const contratos = toNumber(window.prompt('Contratos iniciais:', '0'));
+    const faturamento = toNumber(window.prompt('Faturamento inicial (R$):', '0'));
+    const cartoes = toNumber(window.prompt('Cartões iniciais:', '0'));
+    const badges = Math.round(toNumber(window.prompt('Badges iniciais:', '0')));
+    const pct = (faturamento / 297000) * 100;
+    const nivel = getLevel(pct);
+    updateState(s => {
+      s.data.rows.push({ Nome: name.trim(), Contratos: contratos, Faturamento: faturamento, Cartoes: cartoes, Nivel: nivel, Badges: badges });
+    });
+    showToast(`${name.trim()} adicionado!`);
   };
 
-  // Remove um vendedor pelo índice
   const deleteVendor = (index) => {
-    if (!window.confirm(`Excluir vendedor ${vendors[index].name}?`)) return;
-    setVendors(vendors.filter((_, i) => i !== index));
+    if (!window.confirm(`Excluir ${rows[index]?.Nome}?`)) return;
+    const name = rows[index]?.Nome;
+    updateState(s => {
+      s.data.rows.splice(index, 1);
+      // Reindex photos
+      const np = {};
+      Object.keys(s.photos || {}).forEach(k => { const ki = parseInt(k); if (ki < index) np[ki] = s.photos[k]; else if (ki > index) np[ki - 1] = s.photos[k]; });
+      s.photos = np;
+    });
+    showToast(`${name} removido`, 'warning');
   };
 
-  // Edita um campo de um vendedor (nome, contratos, faturamento ou cartões)
-  const editVendorField = (index, field) => {
-    const vendor = vendors[index];
-    const labelMap = {
-      name: 'Nome',
-      contracts: 'Contratos',
-      revenue: 'Faturamento (R$)',
-      cards: 'Cartões'
+  const editGoal = (path) => {
+    if (!editMode) return;
+    const keys = path.split('.');
+    let current = state;
+    keys.forEach(k => { current = current?.[k]; });
+    const v = editPrompt(`Novo valor para ${path}:`, current);
+    if (v === null) return;
+    updateState(s => {
+      let obj = s;
+      for (let i = 0; i < keys.length - 1; i++) { if (!obj[keys[i]]) obj[keys[i]] = {}; obj = obj[keys[i]]; }
+      obj[keys[keys.length - 1]] = v;
+    });
+  };
+
+  const editVendorMonthlyKPIs = (index) => {
+    const month = window.prompt('Mês (YYYY-MM):', '2026-03');
+    if (!month) return;
+    const parts = month.split('-');
+    const normalized = parts.length === 2 ? `${parts[0]}-${parts[1].padStart(2, '0')}` : month;
+    const vkpis = state.vendorMonthlyKPIs || {};
+    const current = vkpis[index]?.[normalized] || { revenue: 0, contracts: 0, cards: 0 };
+    const input = window.prompt(`Faturamento, Contratos, Cartões para ${fmtMonth(normalized)} (separados por vírgula):`, `${current.revenue}, ${current.contracts}, ${current.cards}`);
+    if (!input) return;
+    const p = input.split(',');
+    updateState(s => {
+      if (!s.vendorMonthlyKPIs) s.vendorMonthlyKPIs = {};
+      if (!s.vendorMonthlyKPIs[index]) s.vendorMonthlyKPIs[index] = {};
+      s.vendorMonthlyKPIs[index][normalized] = { revenue: toNumber(p[0]), contracts: toNumber(p[1]), cards: toNumber(p[2]) };
+      recalcMonthlyTotals(s);
+    });
+    showToast('KPIs atualizados!');
+  };
+
+  const recalcMonthlyTotals = (s) => {
+    const computed = {};
+    if (s.vendorMonthlyKPIs) {
+      Object.values(s.vendorMonthlyKPIs).forEach(vd => {
+        Object.entries(vd || {}).forEach(([m, d]) => {
+          if (!computed[m]) computed[m] = { revenue: 0, contracts: 0, cards: 0 };
+          computed[m].revenue += parseFloat(d?.revenue) || 0;
+          computed[m].contracts += parseFloat(d?.contracts) || 0;
+          computed[m].cards += parseFloat(d?.cards) || 0;
+        });
+      });
+    }
+    const allMonths = new Set([...Object.keys(computed), ...Object.keys(s.monthlyKPIs || {})]);
+    const updated = {};
+    allMonths.forEach(m => {
+      const me = s.monthlyKPIs?.[m] || { revenue: 0, contracts: 0, cards: 0, manual: {} };
+      const manual = me.manual || {};
+      const comp = computed[m] || { revenue: 0, contracts: 0, cards: 0 };
+      updated[m] = {
+        revenue: manual.revenue ? me.revenue : comp.revenue,
+        contracts: manual.contracts ? me.contracts : comp.contracts,
+        cards: manual.cards ? me.cards : comp.cards,
+        manual
+      };
+    });
+    s.monthlyKPIs = updated;
+  };
+
+  const addMonth = () => {
+    const months = Object.keys(state.monthlyKPIs || {}).sort();
+    let next;
+    if (months.length === 0) { next = '2026-01'; }
+    else {
+      const last = months[months.length - 1].split('-');
+      let y = parseInt(last[0]), m = parseInt(last[1]) + 1;
+      if (m > 12) { m = 1; y++; }
+      if (y > 2026) { showToast('Não é possível adicionar além de 2026.', 'error'); return; }
+      next = `${y}-${String(m).padStart(2, '0')}`;
+    }
+    updateState(s => {
+      if (!s.monthlyKPIs) s.monthlyKPIs = {};
+      if (!s.monthlyKPIs[next]) s.monthlyKPIs[next] = { revenue: 0, contracts: 0, cards: 0, manual: {} };
+      if (!s.vendorMonthlyKPIs) s.vendorMonthlyKPIs = {};
+      for (let i = 0; i < s.data.rows.length; i++) {
+        if (!s.vendorMonthlyKPIs[i]) s.vendorMonthlyKPIs[i] = {};
+        if (!s.vendorMonthlyKPIs[i][next]) s.vendorMonthlyKPIs[i][next] = { revenue: 0, contracts: 0, cards: 0 };
+      }
+      recalcMonthlyTotals(s);
+    });
+    showToast(`${fmtMonth(next)} adicionado!`);
+  };
+
+  const editMonthKPI = (month, field) => {
+    if (!editMode) return;
+    const current = state.monthlyKPIs?.[month]?.[field] || 0;
+    const v = editPrompt(`Novo ${field} para ${fmtMonth(month)}:`, current);
+    if (v === null) return;
+    updateState(s => {
+      if (!s.monthlyKPIs[month]) s.monthlyKPIs[month] = { revenue: 0, contracts: 0, cards: 0, manual: {} };
+      if (!s.monthlyKPIs[month].manual) s.monthlyKPIs[month].manual = {};
+      s.monthlyKPIs[month].manual[field] = true;
+      s.monthlyKPIs[month][field] = v;
+    });
+  };
+
+  const uploadPhoto = (index) => {
+    if (!editMode) return;
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = 'image/*';
+    input.onchange = (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => { updateState(s => { if (!s.photos) s.photos = {}; s.photos[index] = reader.result; }); showToast('Foto atualizada!'); };
+      reader.readAsDataURL(file);
     };
-    const currentVal = vendor[field];
-    const input = window.prompt(`Novo valor para ${labelMap[field]} de ${vendor.name}:`, currentVal);
-    if (input === null) return;
-    const newVal = field === 'name' ? input.trim() : parseFloat(input) || 0;
-    const updated = vendors.map((v, i) => (i === index ? { ...v, [field]: newVal } : v));
-    setVendors(updated);
+    input.click();
   };
 
-  // Formata números como moeda brasileira
-  const formatCurrency = (value) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 });
-  const formatNumber = (value) => value.toLocaleString('pt-BR');
+  const registerSale = (index) => {
+    const seller = rows[index];
+    if (!seller) return;
+    updateState(s => {
+      if (!s.vendorStatus) s.vendorStatus = {};
+      s.vendorStatus[index] = { lastSaleDate: getToday() };
+    });
+    showToast(`🔥 ${seller.Nome} está pegando fogo! Venda registrada hoje!`);
+  };
+
+  // Toggle manual freeze status for a vendor. When forced freeze is enabled,
+  // the vendor will always appear as 'Congelando' regardless of last sale date.
+  const toggleFreezeVendor = (index) => {
+    const seller = rows[index];
+    const currentForced = state.vendorStatus?.[index]?.forcedFreeze || false;
+    updateState(s => {
+      if (!s.vendorStatus) s.vendorStatus = {};
+      const st = s.vendorStatus[index] || {};
+      st.forcedFreeze = !currentForced;
+      s.vendorStatus[index] = st;
+    });
+    showToast(`${seller?.Nome || 'Vendedor'} ${currentForced ? 'descongelado' : 'congelado'}`, currentForced ? 'success' : 'info');
+  };
+
+  // ==================== STYLES ====================
+  const colors = {
+    yellow: state.customizations?.colors?.['lecard-yellow'] || '#FCD34D',
+    gold: state.customizations?.colors?.['lecard-gold'] || '#F59E0B',
+    dark: '#1F2937', darker: '#111827',
+    success: '#10B981', error: '#EF4444', info: '#3B82F6',
+    bronze: '#CD7F32', silver: '#C0C0C0', goldM: '#FFD700', platinum: '#E5E4E2', diamond: '#B9F2FF'
+  };
+
+  const cardStyle = {
+    background: 'linear-gradient(135deg, rgba(31,41,55,0.8), rgba(17,24,39,0.8))',
+    backdropFilter: 'blur(10px)', borderRadius: 20, padding: 28,
+    border: '1px solid rgba(252,211,77,0.1)', position: 'relative', overflow: 'hidden', transition: 'all 0.3s'
+  };
+
+  const editable = editMode ? { cursor: 'pointer', textDecoration: 'underline', textDecorationColor: colors.yellow } : {};
+
+  // ==================== RENDER HELPERS ====================
+  const Medal = ({ pos }) => pos === 1 ? '🥇' : pos === 2 ? '🥈' : pos === 3 ? '🥉' : '🏅';
+
+  const LevelBadge = ({ level }) => {
+    const lc = getLevelClass(level);
+    const c = levelColors[lc] || '#CD7F32';
+    return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', background: `${c}33`, color: c, border: `1px solid ${c}` }}>{level}</span>;
+  };
+
+  const StatCard = ({ icon, label, value, subtitle, progress, onClick }) => (
+    <div style={cardStyle}>
+      <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 4, background: `linear-gradient(90deg, ${colors.yellow}, ${colors.gold})` }} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <div style={{ width: 48, height: 48, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>{icon}</div>
+        {progress !== undefined && <span style={{ padding: '6px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700, background: 'rgba(16,185,129,0.2)', color: colors.success }}>↑ {progress}%</span>}
+      </div>
+      <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>{label}</div>
+      <div onClick={onClick} style={{ fontSize: 42, fontWeight: 900, lineHeight: 1, marginBottom: 12, background: 'linear-gradient(135deg, white, rgba(255,255,255,0.8))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', ...editable }}>{value}</div>
+      {subtitle && <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>{subtitle}</div>}
+    </div>
+  );
+
+  const ProgressBar = ({ pct, label1, label2 }) => (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ height: 8, background: 'rgba(255,255,255,0.1)', borderRadius: 10, overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${Math.min(pct, 100)}%`, background: `linear-gradient(90deg, ${colors.yellow}, ${colors.gold})`, borderRadius: 10, transition: 'width 1s' }} />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
+        <span>{label1}</span><span>{label2}</span>
+      </div>
+    </div>
+  );
+
+  const RankingItem = ({ seller, position, origIndex }) => {
+    const pctInd = ((seller.Faturamento / 297000) * 100).toFixed(1);
+    const level = getLevel(parseFloat(pctInd));
+    const photo = photos[origIndex] || `https://ui-avatars.com/api/?name=${encodeURIComponent(seller.Nome)}&background=FCD34D&color=1F2937&size=100`;
+    const rankBg = position === 1 ? 'rgba(255,215,0,0.1)' : position === 2 ? 'rgba(192,192,192,0.1)' : position === 3 ? 'rgba(205,127,50,0.1)' : 'rgba(255,255,255,0.03)';
+    const rankBorder = position === 1 ? colors.goldM : position === 2 ? colors.silver : position === 3 ? colors.bronze : 'rgba(255,255,255,0.05)';
+
+    const vendorSt = (state.vendorStatus || {})[origIndex];
+    const thermal = getVendorThermal(vendorSt);
+    const isFire = thermal === 'fire';
+    const isFreeze = thermal === 'freezing';
+    // Manual freeze flag used to toggle freeze/unfreeze
+    const isForced = vendorSt?.forcedFreeze;
+    const thermalClass = isFire ? 'fire-item' : isFreeze ? 'freeze-item' : '';
+    const lastDate = vendorSt?.lastSaleDate;
+    const daysAgo = lastDate ? daysDiff(lastDate) : null;
+
+    return (
+      <div className={thermalClass} style={{
+        display: 'grid', gridTemplateColumns: '60px 80px 1fr 120px 120px 120px 80px', gap: 20, alignItems: 'center', padding: 20,
+        background: isFire ? 'linear-gradient(135deg, rgba(255,68,0,0.15), rgba(255,136,0,0.08))' : isFreeze ? 'linear-gradient(135deg, rgba(0,128,255,0.12), rgba(0,191,255,0.06))' : rankBg,
+        borderRadius: 16, border: `1px solid ${isFire ? '#ff6600' : isFreeze ? '#00bfff' : rankBorder}`, marginBottom: 12, transition: 'all 0.3s', position: 'relative', overflow: 'hidden'
+      }}>
+        {/* Fire/Freeze overlay gradient */}
+        {isFire && <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'linear-gradient(180deg, rgba(255,68,0,0.08) 0%, transparent 50%)', pointerEvents: 'none' }} />}
+        {isFreeze && <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'linear-gradient(180deg, rgba(0,191,255,0.06) 0%, transparent 50%)', pointerEvents: 'none' }} />}
+
+        <div style={{ fontSize: 32, fontWeight: 900, textAlign: 'center', color: position <= 3 ? rankBorder : 'white', position: 'relative', zIndex: 1 }}>{position}º</div>
+
+        <div style={{ position: 'relative', zIndex: 1 }}>
+          <img src={photo} alt={seller.Nome} onClick={() => uploadPhoto(origIndex)} style={{
+            width: 60, height: 60, borderRadius: '50%', objectFit: 'cover',
+            border: `3px solid ${isFire ? '#ff6600' : isFreeze ? '#00bfff' : colors.yellow}`,
+            cursor: editMode ? 'pointer' : 'default',
+            boxShadow: isFire ? '0 0 12px rgba(255,100,0,0.5)' : isFreeze ? '0 0 12px rgba(0,191,255,0.4)' : 'none'
+          }} />
+          {/* Thermal emoji floating on avatar */}
+          {(isFire || isFreeze) && (
+            <span className={isFire ? 'fire-emoji' : 'freeze-emoji'} style={{ position: 'absolute', top: -8, right: -8, fontSize: 22, zIndex: 2 }}>
+              {thermalEmoji[thermal]}
+            </span>
+          )}
+        </div>
+
+        <div style={{ position: 'relative', zIndex: 1 }}>
+          <div style={{ fontSize: 18, fontWeight: 700, ...editable, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }} onClick={() => editSeller(origIndex, 'Nome')}>
+            {seller.Nome}
+            {/* Thermal status badge */}
+            {isFire && (
+              <span className="fire-badge" style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 20, textTransform: 'uppercase', letterSpacing: 1, marginLeft: 4 }}>
+                🔥 Pegando Fogo!
+              </span>
+            )}
+            {isFreeze && (
+              <span className="freeze-badge" style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 20, textTransform: 'uppercase', letterSpacing: 1, marginLeft: 4 }}>
+                🥶 Congelando
+              </span>
+            )}
+            {editMode && (
+              <span onClick={(e) => { e.stopPropagation(); toggleFreezeVendor(origIndex); }} style={{ marginLeft: 6, cursor: 'pointer', fontSize: 14, color: colors.yellow }} title={isForced ? 'Descongelar' : 'Congelar'}>
+                {isForced ? '🧊' : '❄️'}
+              </span>
+            )}
+            <span onClick={(e) => { e.stopPropagation(); editVendorMonthlyKPIs(origIndex); }} style={{ marginLeft: 6, cursor: 'pointer', fontSize: 14, color: colors.yellow }} title="Editar KPIs mensais">📅</span>
+            {editMode && <span onClick={(e) => { e.stopPropagation(); deleteVendor(origIndex); }} style={{ marginLeft: 6, cursor: 'pointer', fontSize: 14, color: colors.error }} title="Excluir">🗑️</span>}
+          </div>
+          <div style={{ fontSize: 12, color: colors.yellow, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+            <LevelBadge level={level} />
+            <span style={editable} onClick={() => editSeller(origIndex, 'Badges')}>{seller.Badges || 0} badges</span>
+            {daysAgo !== null && <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>• {daysAgo === 0 ? 'Vendeu hoje' : daysAgo === 1 ? '1 dia sem venda' : `${daysAgo} dias sem venda`}</span>}
+          </div>
+          {/* Register sale button */}
+          <button onClick={(e) => { e.stopPropagation(); registerSale(origIndex); }} style={{
+            marginTop: 6, padding: '3px 10px', border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+            background: isFire ? 'rgba(255,100,0,0.2)' : 'rgba(252,211,77,0.15)',
+            color: isFire ? '#ff8800' : colors.yellow,
+            transition: 'all 0.2s'
+          }} title="Marcar que vendeu hoje">
+            🎯 Registrar Venda Hoje
+          </button>
+        </div>
+
+        <div style={{ textAlign: 'center', position: 'relative', zIndex: 1 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: isFire ? '#ff8800' : isFreeze ? '#80dfff' : colors.yellow, ...editable }} onClick={() => editSeller(origIndex, 'Contratos')}>{seller.Contratos}</div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' }}>Contratos</div>
+        </div>
+        <div style={{ textAlign: 'center', position: 'relative', zIndex: 1 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: isFire ? '#ff8800' : isFreeze ? '#80dfff' : colors.yellow, ...editable }} onClick={() => editSeller(origIndex, 'Faturamento')}>{formatCurrency(seller.Faturamento)}</div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' }}>Faturamento</div>
+        </div>
+        <div style={{ textAlign: 'center', position: 'relative', zIndex: 1 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: isFire ? '#ff8800' : isFreeze ? '#80dfff' : colors.yellow, ...editable }} onClick={() => editSeller(origIndex, 'Cartoes')}>{seller.Cartoes}</div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' }}>Cartões</div>
+        </div>
+        <div style={{ fontSize: 40, textAlign: 'center', position: 'relative', zIndex: 1 }}>
+          {isFire ? <span className="fire-emoji" style={{ fontSize: 40 }}>🔥</span> : isFreeze ? <span className="freeze-emoji" style={{ fontSize: 40 }}>🥶</span> : <Medal pos={position} />}
+        </div>
+      </div>
+    );
+  };
+
+  // ==================== PAGES ====================
+  const DashboardPage = () => {
+    const fireCount = rows.filter((_, i) => getVendorThermal((state.vendorStatus || {})[i]) === 'fire').length;
+    const freezeCount = rows.filter((_, i) => getVendorThermal((state.vendorStatus || {})[i]) === 'freezing').length;
+    const normalCount = rows.length - fireCount - freezeCount;
+
+    return (
+    <>
+      <div style={{ marginBottom: 32 }}>
+        <h1 style={{ fontSize: 36, fontWeight: 900, marginBottom: 8, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Dashboard Real-Time</h1>
+        <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)' }}>Acompanhe o desempenho da equipe em tempo real</p>
+      </div>
+
+      {/* Thermal Status Summary */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
+        <div style={{ padding: '16px 20px', borderRadius: 16, background: 'linear-gradient(135deg, rgba(255,68,0,0.15), rgba(255,136,0,0.08))', border: '1px solid rgba(255,100,0,0.3)', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 32 }}>🔥</span>
+          <div>
+            <div style={{ fontSize: 24, fontWeight: 900, color: '#ff8800' }}>{fireCount}</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 1 }}>Pegando Fogo</div>
+          </div>
+        </div>
+        <div style={{ padding: '16px 20px', borderRadius: 16, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 32 }}>✅</span>
+          <div>
+            <div style={{ fontSize: 24, fontWeight: 900, color: '#10B981' }}>{normalCount}</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 1 }}>Normal</div>
+          </div>
+        </div>
+        <div style={{ padding: '16px 20px', borderRadius: 16, background: 'linear-gradient(135deg, rgba(0,128,255,0.12), rgba(0,191,255,0.06))', border: '1px solid rgba(0,191,255,0.3)', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 32 }}>🥶</span>
+          <div>
+            <div style={{ fontSize: 24, fontWeight: 900, color: '#00bfff' }}>{freezeCount}</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 1 }}>Congelando</div>
+          </div>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24, marginBottom: 32 }}>
+        <div style={cardStyle}>
+          <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 4, background: `linear-gradient(90deg, ${colors.yellow}, ${colors.gold})` }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <div style={{ width: 48, height: 48, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>💰</div>
+            <span style={{ padding: '6px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700, background: 'rgba(16,185,129,0.2)', color: colors.success }}>↑ {achRevenue}%</span>
+          </div>
+          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}>Faturamento Total</div>
+          <div onClick={() => editCardValue('revenue')} style={{ fontSize: 42, fontWeight: 900, lineHeight: 1, marginBottom: 12, background: 'linear-gradient(135deg, white, rgba(255,255,255,0.8))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', ...editable }}>{formatCurrency(revenueVal)}</div>
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>Meta: {formatCurrency(sectorGoals.revenue)}</div>
+          <ProgressBar pct={parseFloat(achRevenue)} label1={`${achRevenue}% da meta`} label2={`${formatCurrency(sectorGoals.revenue - totals.revenue)} restante`} />
+        </div>
+        <div style={cardStyle}>
+          <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 4, background: `linear-gradient(90deg, ${colors.yellow}, ${colors.gold})` }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <div style={{ width: 48, height: 48, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>📝</div>
+            <span style={{ padding: '6px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700, background: 'rgba(16,185,129,0.2)', color: colors.success }}>↑ {achContracts}%</span>
+          </div>
+          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}>Contratos Fechados</div>
+          <div onClick={() => editCardValue('contracts')} style={{ fontSize: 42, fontWeight: 900, lineHeight: 1, marginBottom: 12, background: 'linear-gradient(135deg, white, rgba(255,255,255,0.8))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', ...editable }}>{formatNumber(contractsVal)}</div>
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>Meta: {sectorGoals.contracts} contratos</div>
+          <ProgressBar pct={parseFloat(achContracts)} label1={`${achContracts}% da meta`} label2={`${sectorGoals.contracts - totals.contracts} faltam`} />
+        </div>
+        <StatCard icon="💳" label="Cartões Emitidos" value={formatNumber(cardsVal)} subtitle={`Meta: ${formatNumber(sectorGoals.cards)} cartões`} onClick={() => editCardValue('cards')} />
+        <StatCard icon="🎯" label="Ticket Médio" value={formatCurrency(ticketVal)} subtitle="Por contrato fechado" onClick={() => editCardValue('ticketMedio')} />
+      </div>
+      <div style={{ ...cardStyle, borderRadius: 24, padding: 32, marginBottom: 32 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32, paddingBottom: 20, borderBottom: `2px solid rgba(252,211,77,0.2)` }}>
+          <h2 style={{ fontSize: 28, fontWeight: 900, display: 'flex', alignItems: 'center', gap: 12 }}>🏆 Ranking LeCard</h2>
+        </div>
+        {ranking.slice(0, 10).map((seller, idx) => {
+          const origIndex = rows.findIndex(r => r === seller);
+          return <RankingItem key={origIndex} seller={seller} position={idx + 1} origIndex={origIndex} />;
+        })}
+      </div>
+    </>
+  );
+  };
+
+  const ProjectionsPage = () => (
+    <>
+      <div style={{ marginBottom: 32 }}>
+        <h1 style={{ fontSize: 36, fontWeight: 900, marginBottom: 8, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Projeções 2026</h1>
+        <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)' }}>Análise de projeção e metas do ano</p>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24, marginBottom: 32 }}>
+        <StatCard icon="🎯" label="Meta 2026" value={formatCurrency(goals.meta2026)} subtitle="Objetivo anual" onClick={() => editGoal('goals.meta2026')} />
+        <StatCard icon="📊" label="Base 2025" value={formatCurrency(goals.base2025)} subtitle="Contratos vindos de 2025" onClick={() => editGoal('goals.base2025')} />
+        <StatCard icon="📈" label="Projeção Total" value={formatCurrency(projections.projecaoTotal)} subtitle="Internos + Externos" onClick={() => editGoal('projections.projecaoTotal')} />
+        <StatCard icon="⚠️" label="Gap para Meta" value={formatCurrency(goals.gap)} subtitle="Diferença a ser coberta" onClick={() => editGoal('goals.gap')} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24 }}>
+        <div style={cardStyle}>
+          <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 4, background: `linear-gradient(90deg, ${colors.yellow}, ${colors.gold})` }} />
+          <div style={{ width: 48, height: 48, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, marginBottom: 16 }}>👥</div>
+          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}>Vendedores Internos</div>
+          <div onClick={() => editGoal('goals.vendedoresInternos')} style={{ fontSize: 42, fontWeight: 900, marginBottom: 12, background: 'linear-gradient(135deg, white, rgba(255,255,255,0.8))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', ...editable }}>{goals.vendedoresInternos}</div>
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>Meta mensal: <span style={editable} onClick={() => editGoal('goals.metaMensalInterno')}>{formatCurrency(goals.metaMensalInterno)}</span></div>
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', marginTop: 8 }}>Projeção anual: <span style={editable} onClick={() => editGoal('projections.internosTotal')}>{formatCurrency(projections.internosTotal)}</span></div>
+        </div>
+        <div style={cardStyle}>
+          <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 4, background: `linear-gradient(90deg, ${colors.yellow}, ${colors.gold})` }} />
+          <div style={{ width: 48, height: 48, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, marginBottom: 16 }}>👥</div>
+          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}>Vendedores Externos</div>
+          <div onClick={() => editGoal('goals.vendedoresExternos')} style={{ fontSize: 42, fontWeight: 900, marginBottom: 12, background: 'linear-gradient(135deg, white, rgba(255,255,255,0.8))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', ...editable }}>{goals.vendedoresExternos}</div>
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>Meta mensal: <span style={editable} onClick={() => editGoal('goals.metaMensalExterno')}>{formatCurrency(goals.metaMensalExterno)}</span></div>
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', marginTop: 8 }}>Projeção anual: <span style={editable} onClick={() => editGoal('projections.externosTotal')}>{formatCurrency(projections.externosTotal)}</span></div>
+        </div>
+      </div>
+    </>
+  );
+
+  const ArenaPage = () => (
+    <>
+      <div style={{ marginBottom: 32 }}>
+        <h1 style={{ fontSize: 36, fontWeight: 900, marginBottom: 8, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Arena Competitiva</h1>
+        <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)' }}>Conquistas, badges e competições</p>
+      </div>
+      <div style={{ ...cardStyle, borderRadius: 24, padding: 32, marginBottom: 32 }}>
+        <h2 style={{ fontSize: 28, fontWeight: 900, marginBottom: 24, paddingBottom: 20, borderBottom: '2px solid rgba(252,211,77,0.2)' }}>🏆 Leaderboard Completo</h2>
+        {ranking.map((seller, idx) => {
+          const origIndex = rows.findIndex(r => r === seller);
+          return <RankingItem key={origIndex} seller={seller} position={idx + 1} origIndex={origIndex} />;
+        })}
+      </div>
+      <div style={{ ...cardStyle, borderRadius: 24, padding: 32 }}>
+        <h3 style={{ fontSize: 24, fontWeight: 900, marginBottom: 24 }}>🎖️ Conquistas Disponíveis</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 16 }}>
+          {achievements.map((a, i) => (
+            <div key={i} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: 20, textAlign: 'center', opacity: a.locked ? 0.4 : 1, filter: a.locked ? 'grayscale(1)' : 'none', transition: 'all 0.3s' }}>
+              <div style={{ fontSize: 48, marginBottom: 12 }}>{a.icon}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{a.name}</div>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>{a.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+
+  const MonthlyKPIsPage = () => {
+    const months = Object.keys(state.monthlyKPIs || {}).sort();
+    return (
+      <>
+        <div style={{ marginBottom: 32 }}>
+          <h1 style={{ fontSize: 36, fontWeight: 900, marginBottom: 8, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>KPIs Mensais</h1>
+          <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)' }}>Registre e acompanhe os KPIs de cada mês</p>
+        </div>
+        <div style={{ ...cardStyle, borderRadius: 24, padding: 32, overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                {['Mês', 'Faturamento', 'Contratos', 'Cartões', 'Ticket Médio'].map(h => (
+                  <th key={h} style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.1)', textAlign: 'left', fontSize: 14, fontWeight: 600, textTransform: 'uppercase', background: 'rgba(255,255,255,0.1)', color: 'white' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {months.map(m => {
+                const d = state.monthlyKPIs[m] || {};
+                const ticket = d.contracts ? (d.revenue / d.contracts) : 0;
+                return (
+                  <tr key={m}>
+                    <td style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.1)', background: 'rgba(31,41,55,0.8)' }}>{fmtMonth(m)}</td>
+                    <td onClick={() => editMonthKPI(m, 'revenue')} style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.1)', background: 'rgba(31,41,55,0.8)', ...editable }}>{formatCurrency(d.revenue || 0)}</td>
+                    <td onClick={() => editMonthKPI(m, 'contracts')} style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.1)', background: 'rgba(31,41,55,0.8)', ...editable }}>{formatNumber(d.contracts || 0)}</td>
+                    <td onClick={() => editMonthKPI(m, 'cards')} style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.1)', background: 'rgba(31,41,55,0.8)', ...editable }}>{formatNumber(d.cards || 0)}</td>
+                    <td style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.1)', background: 'rgba(31,41,55,0.8)' }}>{formatCurrency(ticket)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <button onClick={addMonth} style={{ marginTop: 16, padding: '10px 20px', border: 'none', borderRadius: 12, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, color: colors.darker, fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>➕ Adicionar Mês</button>
+      </>
+    );
+  };
+
+  // ==================== SETTINGS MODAL ====================
+  const SettingsModal = () => {
+    if (!settingsOpen) return null;
+    return (
+      <div onClick={() => setSettingsOpen(false)} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000 }}>
+        <div onClick={e => e.stopPropagation()} style={{ background: `linear-gradient(135deg, ${colors.dark}, ${colors.darker})`, border: '1px solid rgba(252,211,77,0.2)', borderRadius: 24, padding: 40, maxWidth: 500, width: '90%' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32, paddingBottom: 20, borderBottom: '2px solid rgba(252,211,77,0.2)' }}>
+            <h2 style={{ fontSize: 28, fontWeight: 900, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>⚙️ Configurações</h2>
+            <button onClick={() => setSettingsOpen(false)} style={{ width: 40, height: 40, border: 'none', background: colors.error, color: 'white', borderRadius: '50%', cursor: 'pointer', fontSize: 24 }}>×</button>
+          </div>
+          <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: 24 }}>Configure as cores e parâmetros do dashboard.</p>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', color: 'white', marginBottom: 8 }}>Cor Primária</label>
+            <input type="color" id="colorPrimary" defaultValue={colors.yellow} style={{ width: 60, height: 40 }} />
+          </div>
+          <div style={{ marginBottom: 24 }}>
+            <label style={{ display: 'block', color: 'white', marginBottom: 8 }}>Cor Secundária</label>
+            <input type="color" id="colorSecondary" defaultValue={colors.gold} style={{ width: 60, height: 40 }} />
+          </div>
+          <button onClick={() => {
+            const p = document.getElementById('colorPrimary')?.value;
+            const s = document.getElementById('colorSecondary')?.value;
+            updateState(st => {
+              if (!st.customizations) st.customizations = { texts: {}, colors: {}, logo: '' };
+              if (!st.customizations.colors) st.customizations.colors = {};
+              if (p) st.customizations.colors['lecard-yellow'] = p;
+              if (s) st.customizations.colors['lecard-gold'] = s;
+            });
+            setSettingsOpen(false);
+            showToast('Configurações salvas!');
+          }} style={{ padding: '12px 24px', borderRadius: 12, border: 'none', fontWeight: 700, cursor: 'pointer', background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, color: colors.darker, fontSize: 14 }}>💾 Salvar</button>
+        </div>
+      </div>
+    );
+  };
+
+  // ==================== MAIN LAYOUT ====================
+  const navItems = [
+    { id: 'dashboard', icon: '📊', label: 'Dashboard' },
+    { id: 'projections', icon: '📈', label: 'Projeções 2026' },
+    { id: 'arena', icon: '🏆', label: 'Arena' },
+    { id: 'monthlyKPIs', icon: '📅', label: 'KPIs Mensais' }
+  ];
+
+  const syncColors = { connected: '#10B981', connecting: '#F59E0B', reconnecting: '#F59E0B', offline: '#EF4444' };
+  const syncLabels = { connected: 'Sincronizado', connecting: 'Conectando...', reconnecting: 'Reconectando...', offline: 'Offline' };
 
   return (
-    <div className="min-h-screen flex bg-gray-900 text-white">
+    <div style={{ fontFamily: "'Inter', -apple-system, sans-serif", background: `linear-gradient(135deg, ${colors.darker} 0%, ${colors.dark} 100%)`, color: 'white', minHeight: '100vh', display: 'flex' }}>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+      {/* Toast */}
+      {toast && (
+        <div style={{ position: 'fixed', bottom: 32, right: 32, background: `linear-gradient(135deg, ${colors.dark}, ${colors.darker})`, padding: '20px 28px', borderRadius: 16, border: `1px solid ${toast.type === 'success' ? colors.success : toast.type === 'error' ? colors.error : colors.info}`, display: 'flex', alignItems: 'center', gap: 16, zIndex: 10001, animation: 'slideIn 0.3s ease-out', minWidth: 280 }}>
+          <span style={{ fontSize: 24 }}>{toast.type === 'success' ? '✅' : toast.type === 'error' ? '❌' : toast.type === 'warning' ? '⚠️' : 'ℹ️'}</span>
+          <span style={{ fontWeight: 600 }}>{toast.msg}</span>
+        </div>
+      )}
+
+      <style>{`@keyframes slideIn { from { transform: translateX(200px); opacity:0; } to { transform: translateX(0); opacity:1; } }
+        @keyframes fireGlow {
+          0% { box-shadow: 0 0 8px #ff6600, 0 0 16px #ff4400, 0 0 24px rgba(255,68,0,0.4); border-color: #ff6600; }
+          25% { box-shadow: 0 0 12px #ff8800, 0 0 24px #ff4400, 0 0 36px rgba(255,68,0,0.5); border-color: #ff8800; }
+          50% { box-shadow: 0 0 16px #ffaa00, 0 0 32px #ff6600, 0 0 48px rgba(255,68,0,0.6); border-color: #ffaa00; }
+          75% { box-shadow: 0 0 12px #ff8800, 0 0 24px #ff4400, 0 0 36px rgba(255,68,0,0.5); border-color: #ff8800; }
+          100% { box-shadow: 0 0 8px #ff6600, 0 0 16px #ff4400, 0 0 24px rgba(255,68,0,0.4); border-color: #ff6600; }
+        }
+        @keyframes fireShake {
+          0%, 100% { transform: translateX(0); }
+          10% { transform: translateX(-1px) rotate(-0.5deg); }
+          20% { transform: translateX(1px) rotate(0.5deg); }
+          30% { transform: translateX(-1px); }
+          40% { transform: translateX(1px); }
+          50% { transform: translateX(0); }
+        }
+        @keyframes fireEmoji {
+          0%, 100% { transform: scale(1) rotate(0deg); }
+          25% { transform: scale(1.2) rotate(-5deg); }
+          50% { transform: scale(1.3) rotate(5deg); }
+          75% { transform: scale(1.1) rotate(-3deg); }
+        }
+        @keyframes freezeGlow {
+          0% { box-shadow: 0 0 8px #00bfff, 0 0 16px #0080ff, 0 0 24px rgba(0,128,255,0.3); border-color: #00bfff; }
+          50% { box-shadow: 0 0 16px #80dfff, 0 0 32px #00bfff, 0 0 48px rgba(0,191,255,0.4); border-color: #80dfff; }
+          100% { box-shadow: 0 0 8px #00bfff, 0 0 16px #0080ff, 0 0 24px rgba(0,128,255,0.3); border-color: #00bfff; }
+        }
+        @keyframes freezePulse {
+          0%, 100% { opacity: 1; filter: brightness(1); }
+          50% { opacity: 0.85; filter: brightness(1.1) saturate(0.7); }
+        }
+        @keyframes freezeEmoji {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.15) rotate(3deg); }
+        }
+        @keyframes floatUp {
+          0% { opacity: 1; transform: translateY(0) scale(1); }
+          100% { opacity: 0; transform: translateY(-40px) scale(0.5); }
+        }
+        .fire-item { animation: fireGlow 1.5s ease-in-out infinite, fireShake 3s ease-in-out infinite; }
+        .fire-emoji { animation: fireEmoji 0.8s ease-in-out infinite; display: inline-block; }
+        .freeze-item { animation: freezeGlow 2s ease-in-out infinite, freezePulse 3s ease-in-out infinite; }
+        .freeze-emoji { animation: freezeEmoji 2s ease-in-out infinite; display: inline-block; }
+        .fire-badge { background: linear-gradient(135deg, #ff4400, #ff8800) !important; color: white !important; border: none !important; }
+        .freeze-badge { background: linear-gradient(135deg, #0080ff, #00bfff) !important; color: white !important; border: none !important; }
+      `}</style>
+
+      {/* Sidebar Toggle */}
+      <button onClick={() => setSidebarHidden(!sidebarHidden)} style={{ position: 'fixed', top: 12, left: 12, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', background: colors.yellow, color: colors.darker, border: 'none', borderRadius: '50%', fontSize: 20, cursor: 'pointer', zIndex: 1100, boxShadow: '0 4px 10px rgba(252,211,77,0.4)' }}>☰</button>
+
       {/* Sidebar */}
-      <aside className={`w-64 p-6 border-r border-yellow-500/20 ${editMode ? 'bg-gray-800' : 'bg-gray-850'}`}>
-        <div className="flex items-center gap-3 mb-8">
-          <div className="rounded-xl p-3 bg-gradient-to-br from-yellow-300 to-yellow-500 text-gray-900 font-extrabold text-2xl">LC</div>
-          <h1 className="text-2xl font-extrabold bg-gradient-to-br from-yellow-300 to-yellow-500 bg-clip-text text-transparent">LeCard</h1>
-        </div>
-        <nav className="space-y-4">
+      {!sidebarHidden && (
+        <aside style={{ width: 280, minHeight: '100vh', padding: 24, background: `linear-gradient(180deg, ${colors.dark} 0%, ${colors.darker} 100%)`, borderRight: '1px solid rgba(252,211,77,0.1)', position: 'fixed', left: 0, top: 0, overflowY: 'auto', zIndex: 1000 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 40, paddingBottom: 24, borderBottom: '2px solid rgba(252,211,77,0.2)' }}>
+            <div style={{ width: 50, height: 50, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, fontWeight: 900, color: colors.darker, boxShadow: '0 4px 12px rgba(252,211,77,0.3)' }}>LC</div>
+            <span style={{ fontSize: 24, fontWeight: 900, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>LeCard</span>
+          </div>
+
+          {/* Sync Status */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24, padding: '8px 12px', borderRadius: 8, background: 'rgba(252,211,77,0.05)' }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: syncColors[syncStatus], boxShadow: `0 0 8px ${syncColors[syncStatus]}` }} />
+            <span style={{ fontSize: 12, fontWeight: 600, color: syncColors[syncStatus] }}>{syncLabels[syncStatus]}</span>
+          </div>
+
+          <div style={{ marginBottom: 32 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'rgba(255,255,255,0.5)', marginBottom: 12, paddingLeft: 12 }}>Menu Principal</div>
+            {navItems.map(n => (
+              <div key={n.id} onClick={() => setPage(n.id)} style={{
+                padding: '14px 16px', borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4, transition: 'all 0.3s',
+                ...(page === n.id
+                  ? { background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, color: colors.darker, fontWeight: 700, boxShadow: '0 4px 12px rgba(252,211,77,0.4)' }
+                  : { color: 'rgba(255,255,255,0.7)' })
+              }}>
+                <span style={{ fontSize: 20 }}>{n.icon}</span><span>{n.label}</span>
+              </div>
+            ))}
+          </div>
+
           <div>
-            <h2 className="text-xs uppercase tracking-wider text-yellow-500/80 mb-2">Menu Principal</h2>
-            <div className="space-y-1">
-              <div className="px-4 py-2 rounded-lg bg-yellow-500 text-gray-900 font-semibold">Dashboard</div>
-              {/* Itens adicionais podem ser adicionados aqui */}
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'rgba(255,255,255,0.5)', marginBottom: 12, paddingLeft: 12 }}>Ferramentas</div>
+            <div onClick={() => { if (!editMode) { setEditMode(true); showToast('Modo edição ativado. Clique nos valores para editar.', 'info'); } else { showToast('Você já está em modo edição.', 'info'); } }} style={{ padding: '14px 16px', borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4, color: 'rgba(255,255,255,0.7)' }}>
+              <span style={{ fontSize: 20 }}>📝</span><span>Editar Dados</span>
+            </div>
+            <div onClick={() => setSettingsOpen(true)} style={{ padding: '14px 16px', borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4, color: 'rgba(255,255,255,0.7)' }}>
+              <span style={{ fontSize: 20 }}>⚙️</span><span>Configurações</span>
+            </div>
+            <div onClick={addVendor} style={{ padding: '14px 16px', borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4, color: 'rgba(255,255,255,0.7)' }}>
+              <span style={{ fontSize: 20 }}>➕</span><span>Adicionar Vendedor</span>
+            </div>
+            <div onClick={() => { setEditMode(!editMode); showToast(editMode ? 'Modo visualização' : 'Modo edição ativado', editMode ? 'success' : 'info'); }} style={{
+              padding: '14px 16px', borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4,
+              ...(editMode ? { background: `rgba(252,211,77,0.15)`, color: colors.yellow, fontWeight: 700 } : { color: 'rgba(255,255,255,0.7)' })
+            }}>
+              <span style={{ fontSize: 20 }}>✏️</span><span>{editMode ? 'Modo Visualização' : 'Editar Painel'}</span>
             </div>
           </div>
-          <div>
-            <h2 className="text-xs uppercase tracking-wider text-yellow-500/80 mb-2">Ferramentas</h2>
-            <div className="space-y-1">
-              {editMode && (
-                <button onClick={addVendor} className="w-full text-left px-4 py-2 hover:bg-yellow-500/20 rounded-lg">
-                  ➕ Adicionar Vendedor
-                </button>
-              )}
-              <button onClick={toggleEditMode} className="w-full text-left px-4 py-2 hover:bg-yellow-500/20 rounded-lg">
-                {editMode ? 'Modo Visualização' : '✏️ Editar Painel'}
-              </button>
-            </div>
-          </div>
-        </nav>
-      </aside>
+        </aside>
+      )}
 
-      {/* Conteúdo principal */}
-      <main className="flex-1 p-8">
-        <h2 className="text-3xl font-bold mb-4">Dashboard Real‑Time</h2>
-        {/* Cards com KPIs */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <div className="p-4 rounded-xl bg-gray-800 border border-yellow-500/20">
-            <div className="text-sm uppercase text-yellow-500 mb-1">Faturamento Total</div>
-            <div className="text-2xl font-extrabold" onClick={() => editMode && window.alert('Edite os vendedores para alterar o faturamento total.')}>{formatCurrency(totals.revenue)}</div>
-            <div className="text-xs text-yellow-500/80 mt-1">{formatNumber(totals.revenue)} arrecadado</div>
-          </div>
-          <div className="p-4 rounded-xl bg-gray-800 border border-yellow-500/20">
-            <div className="text-sm uppercase text-yellow-500 mb-1">Contratos Fechados</div>
-            <div className="text-2xl font-extrabold" onClick={() => editMode && window.alert('Edite os vendedores para alterar os contratos.')}>{formatNumber(totals.contracts)}</div>
-            <div className="text-xs text-yellow-500/80 mt-1">Total de contratos</div>
-          </div>
-          <div className="p-4 rounded-xl bg-gray-800 border border-yellow-500/20">
-            <div className="text-sm uppercase text-yellow-500 mb-1">Cartões Emitidos</div>
-            <div className="text-2xl font-extrabold" onClick={() => editMode && window.alert('Edite os vendedores para alterar os cartões.')}>{formatNumber(totals.cards)}</div>
-            <div className="text-xs text-yellow-500/80 mt-1">Cartões acumulados</div>
-          </div>
-          <div className="p-4 rounded-xl bg-gray-800 border border-yellow-500/20">
-            <div className="text-sm uppercase text-yellow-500 mb-1">Ticket Médio</div>
-            <div className="text-2xl font-extrabold" onClick={() => editMode && window.alert('Edite os vendedores para alterar o ticket médio.')}>{formatCurrency(ticketMedio)}</div>
-            <div className="text-xs text-yellow-500/80 mt-1">Por contrato fechado</div>
-          </div>
-        </div>
-
-        {/* Ranking de vendedores */}
-        <section>
-          <h3 className="text-2xl font-bold mb-2">Ranking Comercial</h3>
-          <div className="overflow-x-auto rounded-lg border border-yellow-500/20">
-            <table className="min-w-full divide-y divide-gray-700">
-              <thead className="bg-gray-800">
-                <tr>
-                  <th className="px-4 py-2 text-left text-sm font-semibold text-yellow-500">Posição</th>
-                  <th className="px-4 py-2 text-left text-sm font-semibold text-yellow-500">Consultor</th>
-                  <th className="px-4 py-2 text-right text-sm font-semibold text-yellow-500">Contratos</th>
-                  <th className="px-4 py-2 text-right text-sm font-semibold text-yellow-500">Faturamento</th>
-                  <th className="px-4 py-2 text-right text-sm font-semibold text-yellow-500">Cartões</th>
-                  {editMode && <th className="px-4 py-2 text-sm font-semibold text-yellow-500">Ações</th>}
-                </tr>
-              </thead>
-              <tbody className="bg-gray-900 divide-y divide-gray-800">
-                {vendors
-                  .map((v, i) => ({ ...v, index: i }))
-                  .sort((a, b) => b.contracts - a.contracts || b.revenue - a.revenue)
-                  .map((v, rank) => (
-                    <tr key={v.index} className="hover:bg-gray-800">
-                      <td className="px-4 py-2 whitespace-nowrap">{rank + 1}º</td>
-                      <td className="px-4 py-2 whitespace-nowrap">
-                        <span
-                          className={editMode ? 'underline cursor-pointer' : ''}
-                          onClick={() => editMode && editVendorField(v.index, 'name')}
-                        >
-                          {v.name}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2 whitespace-nowrap text-right">
-                        <span
-                          className={editMode ? 'underline cursor-pointer' : ''}
-                          onClick={() => editMode && editVendorField(v.index, 'contracts')}
-                        >
-                          {formatNumber(v.contracts)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2 whitespace-nowrap text-right">
-                        <span
-                          className={editMode ? 'underline cursor-pointer' : ''}
-                          onClick={() => editMode && editVendorField(v.index, 'revenue')}
-                        >
-                          {formatCurrency(v.revenue)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2 whitespace-nowrap text-right">
-                        <span
-                          className={editMode ? 'underline cursor-pointer' : ''}
-                          onClick={() => editMode && editVendorField(v.index, 'cards')}
-                        >
-                          {formatNumber(v.cards)}
-                        </span>
-                      </td>
-                      {editMode && (
-                        <td className="px-4 py-2 text-center space-x-2">
-                          <button onClick={() => editVendorField(v.index, 'revenue')} className="text-yellow-500 hover:text-yellow-300">Editar</button>
-                          <button onClick={() => deleteVendor(v.index)} className="text-red-500 hover:text-red-300">Excluir</button>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+      {/* Main Content */}
+      <main style={{ marginLeft: sidebarHidden ? 0 : 280, padding: 40, flex: 1, minHeight: '100vh' }}>
+        {page === 'dashboard' && <DashboardPage />}
+        {page === 'projections' && <ProjectionsPage />}
+        {page === 'arena' && <ArenaPage />}
+        {page === 'monthlyKPIs' && <MonthlyKPIsPage />}
       </main>
+
+      {/* Floating Action */}
+      <div onClick={() => showToast('Use o modo edição para alterar KPIs, metas e dados.', 'info')} style={{ position: 'fixed', bottom: 32, right: 32, width: 60, height: 60, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, cursor: 'pointer', boxShadow: '0 8px 24px rgba(252,211,77,0.4)', zIndex: 999, transition: 'all 0.3s' }}>⚡</div>
+
+      <SettingsModal />
     </div>
   );
 }
