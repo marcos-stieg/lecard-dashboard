@@ -515,6 +515,14 @@
             color: var(--lecard-yellow);
         }
 
+        /* Ícone para excluir vendedor, visível apenas em modo de edição */
+        .delete-vendor-icon {
+            margin-left: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            color: var(--error);
+        }
+
         /* ==================== LEVEL BADGE ==================== */
         .level-badge {
             display: inline-flex;
@@ -925,6 +933,11 @@
         <div class="nav-item" onclick="app.importExcel()">
                 <span class="nav-icon">📥</span>
                 <span>Importar Excel</span>
+            </div>
+            <!-- Botão para adicionar novo vendedor -->
+            <div class="nav-item" onclick="app.addVendor()">
+                <span class="nav-icon">➕</span>
+                <span>Adicionar Vendedor</span>
             </div>
             <!-- Toggle edit mode for customisation -->
             <div class="nav-item" id="editModeToggle" onclick="app.toggleEditMode()">
@@ -1367,7 +1380,11 @@
                                         <div class="ranking-position rank-${position}">${posText}</div>
                                         <img src="${photo}" alt="${seller.Nome}" class="ranking-avatar" data-photo-index="${index}">
                                         <div class="ranking-info">
-                                            <div class="ranking-name" data-seller-index="${index}" data-seller-field="Nome">${seller.Nome}<span class="ranking-kpi-edit" data-vendor-index="${index}" title="Editar KPIs mensais" onclick="event.stopPropagation(); app.editVendorMonthlyKPIs(${index});">📅</span></div>
+                                            <div class="ranking-name" data-seller-index="${index}" data-seller-field="Nome">
+                                                ${seller.Nome}
+                                                <span class="ranking-kpi-edit" data-vendor-index="${index}" title="Editar KPIs mensais" onclick="event.stopPropagation(); app.editVendorMonthlyKPIs(${index});">📅</span>
+                                                <span class="delete-vendor-icon" data-delete-index="${index}" title="Excluir vendedor" style="display:none;" onclick="event.stopPropagation(); app.deleteVendor(${index});">🗑️</span>
+                                            </div>
                                             <div class="ranking-level">
                                                 <span class="level-badge ${levelClass}">${level}</span>
                                                 <span data-seller-index="${index}" data-seller-field="Badges">${seller.Badges || 0} badges</span>
@@ -1510,7 +1527,11 @@
                                         <div class="ranking-position ${position <= 3 ? `rank-${position}` : ''}">${posText}</div>
                                         <img src="${photo}" alt="${seller.Nome}" class="ranking-avatar" data-photo-index="${index}">
                                         <div class="ranking-info">
-                                            <div class="ranking-name" data-seller-index="${index}" data-seller-field="Nome">${seller.Nome}<span class="ranking-kpi-edit" data-vendor-index="${index}" title="Editar KPIs mensais" onclick="event.stopPropagation(); app.editVendorMonthlyKPIs(${index});">📅</span></div>
+                                            <div class="ranking-name" data-seller-index="${index}" data-seller-field="Nome">
+                                                ${seller.Nome}
+                                                <span class="ranking-kpi-edit" data-vendor-index="${index}" title="Editar KPIs mensais" onclick="event.stopPropagation(); app.editVendorMonthlyKPIs(${index});">📅</span>
+                                                <span class="delete-vendor-icon" data-delete-index="${index}" title="Excluir vendedor" style="display:none;" onclick="event.stopPropagation(); app.deleteVendor(${index});">🗑️</span>
+                                            </div>
                                             <div class="ranking-level">
                                                 <span class="level-badge ${levelClass}">${level}</span>
                                                 <span data-seller-index="${index}" data-seller-field="Badges">${seller.Badges || 0} badges</span>
@@ -2046,6 +2067,18 @@
                         });
                     }
                 });
+
+                // Gerenciar exibição de ícones de exclusão de vendedores. Mostra apenas em modo de edição
+                const deleteIcons = document.querySelectorAll('.delete-vendor-icon');
+                deleteIcons.forEach(icon => {
+                    if (this.state.editMode) {
+                        icon.style.display = 'inline';
+                        icon.style.cursor = 'pointer';
+                    } else {
+                        icon.style.display = 'none';
+                        icon.style.cursor = '';
+                    }
+                });
             }
 
             /**
@@ -2165,6 +2198,111 @@
                     if (!isNaN(parsed)) {
                         newValue = parsed;
                     }
+
+    /**
+     * Adiciona um novo vendedor à lista. Solicita ao usuário o nome e os valores iniciais
+     * para contratos, faturamento, cartões e badges. Também inicializa as estruturas
+     * de KPIs mensais e fotos para o novo vendedor e recalcula totais mensais.
+     */
+    addVendor() {
+        // Solicitar informações básicas do novo vendedor
+        const name = window.prompt('Digite o nome do novo vendedor');
+        if (name === null || name.trim() === '') return;
+        // Campos numéricos com valores padrão
+        const contratosInput = window.prompt('Digite o número inicial de contratos', '0');
+        const faturamentoInput = window.prompt('Digite o faturamento inicial (em reais)', '0');
+        const cartoesInput = window.prompt('Digite o número inicial de cartões', '0');
+        const badgesInput = window.prompt('Digite o número inicial de badges', '0');
+        // Converter entradas para números
+        const toNumber = (val) => {
+            if (val === null || val === undefined) return 0;
+            const numeric = val.toString().replace(/[^0-9,.-]/g, '').replace(',', '.');
+            const parsed = parseFloat(numeric);
+            return isNaN(parsed) ? 0 : parsed;
+        };
+        const contratos = toNumber(contratosInput);
+        const faturamento = toNumber(faturamentoInput);
+        const cartoes = toNumber(cartoesInput);
+        const badges = Math.round(toNumber(badgesInput));
+        // Estimar nível inicial com base no faturamento individual (comparado à meta mensal de 297.000)
+        const percentIndividual = (faturamento / 297000) * 100;
+        const nivel = this.getLevel(percentIndividual);
+        // Criar novo objeto de vendedor
+        const newVendor = {
+            Nome: name.trim(),
+            Contratos: contratos,
+            Faturamento: faturamento,
+            Cartoes: cartoes,
+            Nivel: nivel,
+            Badges: badges
+        };
+        // Adicionar à lista de vendedores
+        this.state.data.rows.push(newVendor);
+        // Atualizar fotos: sem foto por padrão
+        if (!this.state.photos) {
+            this.state.photos = {};
+        }
+        // Inicializar KPIs mensais para o novo vendedor
+        if (!this.state.vendorMonthlyKPIs) {
+            this.state.vendorMonthlyKPIs = {};
+        }
+        const newIndex = this.state.data.rows.length - 1;
+        this.state.vendorMonthlyKPIs[newIndex] = {};
+        // Copiar meses existentes de monthlyKPIs
+        const monthKeys = Object.keys(this.state.monthlyKPIs || {});
+        monthKeys.forEach(m => {
+            this.state.vendorMonthlyKPIs[newIndex][m] = { revenue: 0, contracts: 0, cards: 0 };
+        });
+        // Recalcular totais mensais e salvar
+        if (typeof this.recalculateMonthlyTotals === 'function') {
+            this.recalculateMonthlyTotals();
+        }
+        this.saveToStorage();
+        this.render();
+    }
+
+    /**
+     * Remove um vendedor da lista com base no índice fornecido. Reindexa os arrays
+     * e objetos dependentes (fotos, vendorMonthlyKPIs) e recalcula os KPIs mensais.
+     * Solicita confirmação ao usuário antes de excluir.
+     */
+    deleteVendor(index) {
+        const idx = parseInt(index);
+        if (isNaN(idx) || idx < 0 || idx >= this.state.data.rows.length) return;
+        const seller = this.state.data.rows[idx];
+        const confirmDelete = window.confirm(`Tem certeza que deseja excluir o vendedor ${seller.Nome}?`);
+        if (!confirmDelete) return;
+        // Remover o vendedor da lista
+        this.state.data.rows.splice(idx, 1);
+        // Reindexar fotos
+        const newPhotos = {};
+        Object.keys(this.state.photos || {}).forEach(key => {
+            const k = parseInt(key);
+            if (k < idx) {
+                newPhotos[k] = this.state.photos[key];
+            } else if (k > idx) {
+                newPhotos[k - 1] = this.state.photos[key];
+            }
+        });
+        this.state.photos = newPhotos;
+        // Reindexar vendorMonthlyKPIs
+        const newVendorKPIs = {};
+        Object.keys(this.state.vendorMonthlyKPIs || {}).forEach(key => {
+            const k = parseInt(key);
+            if (k < idx) {
+                newVendorKPIs[k] = this.state.vendorMonthlyKPIs[key];
+            } else if (k > idx) {
+                newVendorKPIs[k - 1] = this.state.vendorMonthlyKPIs[key];
+            }
+        });
+        this.state.vendorMonthlyKPIs = newVendorKPIs;
+        // Recalcular totais mensais
+        if (typeof this.recalculateMonthlyTotals === 'function') {
+            this.recalculateMonthlyTotals();
+        }
+        this.saveToStorage();
+        this.render();
+    }
                 }
                 this.state.data.rows[index][field] = newValue;
                 this.saveToStorage();
