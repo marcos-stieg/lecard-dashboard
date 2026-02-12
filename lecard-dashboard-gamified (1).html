@@ -1,0 +1,2300 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LeCard - Dashboard Gamificado 2026</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            /* LeCard Brand Colors */
+            --lecard-yellow: #FCD34D;
+            --lecard-gold: #F59E0B;
+            --lecard-dark: #1F2937;
+            --lecard-darker: #111827;
+            
+            /* Gamification Colors */
+            --bronze: #CD7F32;
+            --silver: #C0C0C0;
+            --gold: #FFD700;
+            --platinum: #E5E4E2;
+            --diamond: #B9F2FF;
+            
+            /* Status Colors */
+            --success: #10B981;
+            --warning: #F59E0B;
+            --error: #EF4444;
+            --info: #3B82F6;
+            
+            /* UI Colors */
+            --white: #FFFFFF;
+            --gray-50: #F9FAFB;
+            --gray-100: #F3F4F6;
+            --gray-200: #E5E7EB;
+            --gray-700: #374151;
+            --gray-800: #1F2937;
+            
+            --sidebar-width: 280px;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: linear-gradient(135deg, var(--lecard-darker) 0%, var(--lecard-dark) 100%);
+            color: white;
+            overflow-x: hidden;
+        }
+
+        /* ==================== SIDEBAR ==================== */
+        .sidebar {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: var(--sidebar-width);
+            height: 100vh;
+            background: linear-gradient(180deg, var(--lecard-dark) 0%, var(--lecard-darker) 100%);
+            border-right: 1px solid rgba(252, 211, 77, 0.1);
+            z-index: 1000;
+            overflow-y: auto;
+            padding: 24px;
+        }
+
+        .sidebar-logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 40px;
+            padding-bottom: 24px;
+            border-bottom: 2px solid rgba(252, 211, 77, 0.2);
+        }
+
+        .logo {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, var(--lecard-yellow), var(--lecard-gold));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            font-weight: 900;
+            color: var(--lecard-darker);
+            box-shadow: 0 4px 12px rgba(252, 211, 77, 0.3);
+        }
+
+        .logo-text {
+            font-size: 24px;
+            font-weight: 900;
+            background: linear-gradient(135deg, var(--lecard-yellow), var(--lecard-gold));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .nav-section {
+            margin-bottom: 32px;
+        }
+
+        .nav-title {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: rgba(255,255,255,0.5);
+            margin-bottom: 12px;
+            padding-left: 12px;
+        }
+
+        .nav-item {
+            padding: 14px 16px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 4px;
+            color: rgba(255,255,255,0.7);
+        }
+
+        .nav-item:hover {
+            background: rgba(252, 211, 77, 0.1);
+            color: white;
+        }
+
+        .nav-item.active {
+            background: linear-gradient(135deg, var(--lecard-yellow), var(--lecard-gold));
+            color: var(--lecard-darker);
+            font-weight: 700;
+            box-shadow: 0 4px 12px rgba(252, 211, 77, 0.4);
+        }
+
+        .nav-icon {
+            font-size: 20px;
+        }
+
+        /* ==================== USER PROFILE ==================== */
+        .user-profile {
+            padding: 20px;
+            background: rgba(252, 211, 77, 0.05);
+            border-radius: 16px;
+            margin-top: 24px;
+            border: 1px solid rgba(252, 211, 77, 0.1);
+            /* Ocultar perfil do gestor */
+            display: none !important;
+        }
+
+        .user-avatar {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            margin: 0 auto 12px;
+            display: block;
+            border: 3px solid var(--lecard-yellow);
+        }
+
+        .user-name {
+            text-align: center;
+            font-weight: 700;
+            font-size: 16px;
+            margin-bottom: 4px;
+        }
+
+        .user-level {
+            text-align: center;
+            font-size: 12px;
+            color: var(--lecard-yellow);
+            font-weight: 600;
+        }
+
+        .user-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 16px;
+        }
+
+        .user-stat {
+            text-align: center;
+            padding: 8px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+        }
+
+        .user-stat-value {
+            font-size: 18px;
+            font-weight: 900;
+            color: var(--lecard-yellow);
+        }
+
+        .user-stat-label {
+            font-size: 10px;
+            color: rgba(255,255,255,0.5);
+            text-transform: uppercase;
+        }
+
+        /* ==================== MAIN CONTENT ==================== */
+        .main-content {
+            margin-left: var(--sidebar-width);
+            padding: 40px;
+            min-height: 100vh;
+        }
+
+        /* ==================== PAGE HEADER ==================== */
+        .page-header {
+            margin-bottom: 32px;
+        }
+
+        .page-title {
+            font-size: 36px;
+            font-weight: 900;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, var(--lecard-yellow), var(--lecard-gold));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .page-subtitle {
+            font-size: 16px;
+            color: rgba(255,255,255,0.6);
+        }
+
+        /* ==================== STATS CARDS ==================== */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, rgba(31, 41, 55, 0.8), rgba(17, 24, 39, 0.8));
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 28px;
+            border: 1px solid rgba(252, 211, 77, 0.1);
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(90deg, var(--lecard-yellow), var(--lecard-gold));
+        }
+
+        .stat-card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(252, 211, 77, 0.3);
+            box-shadow: 0 12px 40px rgba(252, 211, 77, 0.2);
+        }
+
+        .stat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .stat-icon {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, var(--lecard-yellow), var(--lecard-gold));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+
+        .stat-trend {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .stat-trend.up {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success);
+        }
+
+        .stat-trend.down {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--error);
+        }
+
+        .stat-label {
+            font-size: 13px;
+            color: rgba(255,255,255,0.6);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 42px;
+            font-weight: 900;
+            line-height: 1;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, white, rgba(255,255,255,0.8));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .stat-subtitle {
+            font-size: 14px;
+            color: rgba(255,255,255,0.5);
+        }
+
+        .stat-progress {
+            margin-top: 16px;
+        }
+
+        .progress-bar-bg {
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--lecard-yellow), var(--lecard-gold));
+            border-radius: 10px;
+            transition: width 1s ease;
+        }
+
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+            font-size: 12px;
+            color: rgba(255,255,255,0.6);
+        }
+
+        /* ==================== RANKING SECTION ==================== */
+        .ranking-section {
+            background: linear-gradient(135deg, rgba(31, 41, 55, 0.8), rgba(17, 24, 39, 0.8));
+            backdrop-filter: blur(10px);
+            border-radius: 24px;
+            padding: 32px;
+            border: 1px solid rgba(252, 211, 77, 0.1);
+            margin-bottom: 32px;
+        }
+
+        .ranking-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 32px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid rgba(252, 211, 77, 0.2);
+        }
+
+        .ranking-title {
+            font-size: 28px;
+            font-weight: 900;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .ranking-filters {
+            display: flex;
+            gap: 12px;
+        }
+
+        .filter-btn {
+            padding: 8px 16px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .filter-btn:hover,
+        .filter-btn.active {
+            background: linear-gradient(135deg, var(--lecard-yellow), var(--lecard-gold));
+            color: var(--lecard-darker);
+            border-color: transparent;
+        }
+
+        .ranking-list {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .ranking-item {
+            display: grid;
+            grid-template-columns: 60px 80px 1fr 120px 120px 120px 80px;
+            gap: 20px;
+            align-items: center;
+            padding: 20px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 16px;
+            border: 1px solid rgba(255,255,255,0.05);
+            transition: all 0.3s;
+            /* Position relative to allow absolutely positioned edit icon */
+            position: relative;
+        }
+
+        .ranking-item:hover {
+            background: rgba(252, 211, 77, 0.1);
+            border-color: rgba(252, 211, 77, 0.3);
+            transform: translateX(4px);
+        }
+
+        .ranking-item.rank-1 {
+            background: linear-gradient(135deg, rgba(255, 215, 0, 0.1), rgba(255, 215, 0, 0.05));
+            border-color: var(--gold);
+        }
+
+        .ranking-item.rank-2 {
+            background: linear-gradient(135deg, rgba(192, 192, 192, 0.1), rgba(192, 192, 192, 0.05));
+            border-color: var(--silver);
+        }
+
+        .ranking-item.rank-3 {
+            background: linear-gradient(135deg, rgba(205, 127, 50, 0.1), rgba(205, 127, 50, 0.05));
+            border-color: var(--bronze);
+        }
+
+        .ranking-position {
+            font-size: 32px;
+            font-weight: 900;
+            text-align: center;
+        }
+
+        .ranking-position.rank-1 { color: var(--gold); }
+        .ranking-position.rank-2 { color: var(--silver); }
+        .ranking-position.rank-3 { color: var(--bronze); }
+
+        .ranking-avatar {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 3px solid var(--lecard-yellow);
+        }
+
+        .ranking-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .ranking-name {
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .ranking-level {
+            font-size: 12px;
+            color: var(--lecard-yellow);
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .ranking-stat {
+            text-align: center;
+        }
+
+        .ranking-stat-value {
+            font-size: 20px;
+            font-weight: 800;
+            color: var(--lecard-yellow);
+        }
+
+        .ranking-stat-label {
+            font-size: 11px;
+            color: rgba(255,255,255,0.5);
+            text-transform: uppercase;
+        }
+
+        .ranking-medal {
+            font-size: 40px;
+            text-align: center;
+        }
+
+        /* Estilização do container da medalha e do ícone de edição */
+        .ranking-medal {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        /* Ícone para edição de KPIs mensais por vendedor, posicionado ao lado do nome */
+        .ranking-kpi-edit {
+            margin-left: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            color: var(--lecard-yellow);
+        }
+
+        /* ==================== LEVEL BADGE ==================== */
+        .level-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .level-badge.bronze {
+            background: rgba(205, 127, 50, 0.2);
+            color: var(--bronze);
+            border: 1px solid var(--bronze);
+        }
+
+        .level-badge.silver {
+            background: rgba(192, 192, 192, 0.2);
+            color: var(--silver);
+            border: 1px solid var(--silver);
+        }
+
+        .level-badge.gold {
+            background: rgba(255, 215, 0, 0.2);
+            color: var(--gold);
+            border: 1px solid var(--gold);
+        }
+
+        .level-badge.platinum {
+            background: rgba(229, 228, 226, 0.2);
+            color: var(--platinum);
+            border: 1px solid var(--platinum);
+        }
+
+        .level-badge.diamond {
+            background: rgba(185, 242, 255, 0.2);
+            color: var(--diamond);
+            border: 1px solid var(--diamond);
+        }
+
+        /* ==================== ACHIEVEMENTS ==================== */
+        .achievements-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 16px;
+            margin-top: 24px;
+        }
+
+        .achievement-card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s;
+        }
+
+        .achievement-card:hover {
+            background: rgba(252, 211, 77, 0.1);
+            border-color: var(--lecard-yellow);
+            transform: translateY(-4px);
+        }
+
+        .achievement-card.locked {
+            opacity: 0.4;
+            filter: grayscale(1);
+        }
+
+        .achievement-icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+        }
+
+        .achievement-name {
+            font-size: 14px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .achievement-desc {
+            font-size: 11px;
+            color: rgba(255,255,255,0.5);
+        }
+
+        /* ==================== PROJECTION CHART ==================== */
+        .chart-container {
+            background: linear-gradient(135deg, rgba(31, 41, 55, 0.8), rgba(17, 24, 39, 0.8));
+            backdrop-filter: blur(10px);
+            border-radius: 24px;
+            padding: 32px;
+            border: 1px solid rgba(252, 211, 77, 0.1);
+            margin-bottom: 32px;
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .chart-title {
+            font-size: 24px;
+            font-weight: 900;
+        }
+
+        /* ==================== MODALS ==================== */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+
+        .modal-overlay.show {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .modal {
+            background: linear-gradient(135deg, var(--lecard-dark), var(--lecard-darker));
+            border: 1px solid rgba(252, 211, 77, 0.2);
+            border-radius: 24px;
+            padding: 40px;
+            max-width: 600px;
+            width: 90%;
+            transform: scale(0.9);
+            transition: transform 0.3s;
+        }
+
+        .modal-overlay.show .modal {
+            transform: scale(1);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 32px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid rgba(252, 211, 77, 0.2);
+        }
+
+        .modal-title {
+            font-size: 28px;
+            font-weight: 900;
+            background: linear-gradient(135deg, var(--lecard-yellow), var(--lecard-gold));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .modal-close {
+            width: 40px;
+            height: 40px;
+            border: none;
+            background: var(--error);
+            color: white;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 24px;
+            transition: all 0.3s;
+        }
+
+        .modal-close:hover {
+            transform: rotate(90deg);
+        }
+
+        /* ==================== BUTTONS ==================== */
+        .btn {
+            padding: 12px 24px;
+            border-radius: 12px;
+            border: none;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--lecard-yellow), var(--lecard-gold));
+            color: var(--lecard-darker);
+            box-shadow: 0 4px 12px rgba(252, 211, 77, 0.4);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(252, 211, 77, 0.5);
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.15);
+        }
+
+        /* ==================== TOAST ==================== */
+        .toast {
+            position: fixed;
+            bottom: 32px;
+            right: 32px;
+            background: linear-gradient(135deg, var(--lecard-dark), var(--lecard-darker));
+            padding: 20px 28px;
+            border-radius: 16px;
+            border: 1px solid rgba(252, 211, 77, 0.3);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            min-width: 320px;
+            transform: translateX(500px);
+            transition: transform 0.3s;
+            z-index: 10001;
+        }
+
+        .toast.show {
+            transform: translateX(0);
+        }
+
+        .toast-success { border-color: var(--success); }
+        .toast-error { border-color: var(--error); }
+        .toast-info { border-color: var(--info); }
+
+        .hidden { display: none !important; }
+
+        /* ==================== ANIMATIONS ==================== */
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .slide-up {
+            animation: slideUp 0.5s ease-out;
+        }
+
+        /* ==================== FLOATING ACTION ==================== */
+        .floating-action {
+            position: fixed;
+            bottom: 32px;
+            right: 32px;
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, var(--lecard-yellow), var(--lecard-gold));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 8px 24px rgba(252, 211, 77, 0.4);
+            transition: all 0.3s;
+            z-index: 999;
+        }
+
+        .floating-action:hover {
+            transform: scale(1.1) rotate(90deg);
+        }
+
+        /* ==================== SIDEBAR TOGGLE ==================== */
+        /* Hide sidebar and adjust main content when sidebar is hidden */
+        .sidebar-hidden .sidebar {
+            display: none;
+        }
+        .sidebar-hidden .main-content {
+            margin-left: 0;
+        }
+        /* Toggle sidebar button style */
+        .toggle-sidebar-btn {
+            position: fixed;
+            top: 12px;
+            left: 12px;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--lecard-yellow);
+            color: var(--lecard-darker);
+            border: none;
+            border-radius: 50%;
+            font-size: 20px;
+            cursor: pointer;
+            z-index: 1100;
+            box-shadow: 0 4px 10px rgba(252, 211, 77, 0.4);
+        }
+
+        /* ==================== MONTHLY KPI TABLE ==================== */
+        .monthly-kpi-table table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .monthly-kpi-table th,
+        .monthly-kpi-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: left;
+            font-size: 14px;
+        }
+
+        .monthly-kpi-table th {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .monthly-kpi-table td {
+            background: rgba(31, 41, 55, 0.8);
+            color: white;
+        }
+
+        /* ==================== ADD MONTH BUTTON ==================== */
+        .btn-add-month {
+            display: inline-block;
+            margin-top: 16px;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 12px;
+            background: linear-gradient(135deg, var(--lecard-yellow), var(--lecard-gold));
+            color: var(--lecard-darker);
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(252, 211, 77, 0.4);
+            transition: all 0.3s;
+        }
+
+        .btn-add-month:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 24px rgba(252, 211, 77, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar toggle button -->
+    <button id="toggleSidebarButton" class="toggle-sidebar-btn" onclick="app.toggleSidebar()">☰</button>
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+        <div class="sidebar-logo">
+            <div class="logo">LC</div>
+            <div class="logo-text">LeCard</div>
+        </div>
+
+        <div class="nav-section">
+            <div class="nav-title">Menu Principal</div>
+            <div class="nav-item active" onclick="app.setPage('dashboard')">
+                <span class="nav-icon">📊</span>
+                <span>Dashboard</span>
+            </div>
+            <div class="nav-item" onclick="app.setPage('projections')">
+                <span class="nav-icon">📈</span>
+                <span>Projeções 2026</span>
+            </div>
+            <div class="nav-item" onclick="app.setPage('arena')">
+                <span class="nav-icon">🏆</span>
+                <span>Arena</span>
+            </div>
+            <div class="nav-item" onclick="app.setPage('monthlyKPIs')">
+                <span class="nav-icon">📅</span>
+                <span>KPIs Mensais</span>
+            </div>
+            <!-- Perfil removido -->
+        </div>
+
+        <div class="nav-section">
+            <div class="nav-title">Ferramentas</div>
+            <div class="nav-item" onclick="app.showDataEditor()">
+                <span class="nav-icon">📝</span>
+                <span>Editar Dados</span>
+            </div>
+            <div class="nav-item" onclick="app.showSettings()">
+                <span class="nav-icon">⚙️</span>
+                <span>Configurações</span>
+            </div>
+        <div class="nav-item" onclick="app.importExcel()">
+                <span class="nav-icon">📥</span>
+                <span>Importar Excel</span>
+            </div>
+            <!-- Toggle edit mode for customisation -->
+            <div class="nav-item" id="editModeToggle" onclick="app.toggleEditMode()">
+                <span class="nav-icon">✏️</span>
+                <span>Editar Painel</span>
+            </div>
+        </div>
+
+        <div class="user-profile">
+            <img src="https://ui-avatars.com/api/?name=Gestor&background=FCD34D&color=1F2937&size=100" 
+                 alt="User" class="user-avatar" id="userAvatar">
+            <div class="user-name" id="userName">Gestor LeCard</div>
+            <div class="user-level" id="userLevel">🏆 Nível Platina</div>
+            <div class="user-stats">
+                <div class="user-stat">
+                    <div class="user-stat-value" id="userStreak">7</div>
+                    <div class="user-stat-label">Streak</div>
+                </div>
+                <div class="user-stat">
+                    <div class="user-stat-value" id="userBadges">12</div>
+                    <div class="user-stat-label">Badges</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div class="main-content" id="mainContent">
+        <!-- Content rendered by JavaScript -->
+    </div>
+
+    <!-- FLOATING ACTION BUTTON -->
+    <div class="floating-action" onclick="app.showQuickActions()">
+        ⚡
+    </div>
+
+    <!-- MODALS -->
+    <div class="modal-overlay" id="settingsModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title">⚙️ Configurações</h2>
+                <button class="modal-close" onclick="app.closeModal('settingsModal')">×</button>
+            </div>
+            <p style="color: rgba(255,255,255,0.7); margin-bottom: 24px;">
+                Configure as metas, cores e parâmetros do dashboard.
+            </p>
+            <div style="margin-bottom: 16px;">
+                <label style="display:block;color: var(--white); margin-bottom: 8px;">Cor Primária</label>
+                <input type="color" id="color_lecard-yellow" value="#FCD34D" />
+            </div>
+            <div style="margin-bottom: 16px;">
+                <label style="display:block;color: var(--white); margin-bottom: 8px;">Cor Secundária</label>
+                <input type="color" id="color_lecard-gold" value="#F59E0B" />
+            </div>
+            <div style="margin-bottom: 24px;">
+                <label style="display:block;color: var(--white); margin-bottom: 8px;">Logo</label>
+                <input type="file" id="logoInput" accept="image/*" />
+            </div>
+            <button class="btn btn-primary" onclick="app.saveSettings()">💾 Salvar</button>
+        </div>
+    </div>
+
+    <script>
+        class LeCardDashboard {
+            constructor() {
+                // Base state definition
+                this.state = {
+                    currentPage: 'dashboard',
+                    currentUser: {
+                        name: 'Gestor LeCard',
+                        level: 'Platina',
+                        streak: 7,
+                        badges: 12,
+                        avatar: ''
+                    },
+                    data: {
+                        rows: [],
+                        columns: ['Nome', 'Contratos', 'Faturamento', 'Cartoes', 'Nivel', 'Badges']
+                    },
+                    goals: {
+                        meta2026: 600000000,
+                        base2025: 226000000,
+                        gap: 36338000,
+                        vendedoresInternos: 7,
+                        vendedoresExternos: 50,
+                        metaMensalInterno: 297000,
+                        metaMensalExterno: 45000
+                    },
+                    projections: {
+                        internosTotal: 162162000,
+                        externosTotal: 175500000,
+                        projecaoTotal: 563662000
+                    },
+                    // Customisation state for editable texts, colours and logo
+                    customizations: {
+                        texts: {},
+                        colors: {},
+                        logo: ''
+                    },
+                // Manual overrides for dashboard card values; null values use computed totals
+                cardValues: {
+                    revenue: null,
+                    contracts: null,
+                    cards: null,
+                    ticketMedio: null
+                },
+                // Flag to enable or disable editing mode
+                editMode: false,
+                // Stores uploaded photos for each vendor keyed by index
+                photos: {},
+                // Tracks whether the sidebar is hidden
+                sidebarHidden: false,
+                // Stores KPI values by month (e.g. '2026-01': { revenue, contracts, cards, manual: { revenue: true, contracts: true, cards: true } })
+                // The optional `manual` object marks fields edited manually so they are not overwritten when recalculating totals from vendor data.
+                monthlyKPIs: {},
+                // Stores KPIs by month for each vendor (indexed by vendor index)
+                vendorMonthlyKPIs: {}
+                };
+
+                // Bind blur handler so that 'this' refers to the class instance
+                this.handleBlur = this.handleBlur.bind(this);
+
+                this.init();
+            }
+
+            init() {
+                this.loadFromStorage();
+
+                // Apply sidebar hidden state
+                if (this.state.sidebarHidden) {
+                    const body = document.body;
+                    if (body) {
+                        body.classList.add('sidebar-hidden');
+                    }
+                }
+
+                // Apply saved customisations (colours, logo) before initial render
+                if (typeof this.applyCustomizations === 'function') {
+                    this.applyCustomizations();
+                }
+
+                if (this.state.data.rows.length === 0) {
+                    this.loadDemoData();
+                }
+
+                // Initialize monthly KPIs with January and February 2026 if not set
+                if (!this.state.monthlyKPIs || Object.keys(this.state.monthlyKPIs).length === 0) {
+                    // Initialise with January and February 2026. Each entry includes a `manual` property for override flags.
+                    this.state.monthlyKPIs = {
+                        '2026-01': { revenue: 0, contracts: 0, cards: 0, manual: {} },
+                        '2026-02': { revenue: 0, contracts: 0, cards: 0, manual: {} }
+                    };
+                } else {
+                    // Ensure each existing month entry has a manual property
+                    Object.keys(this.state.monthlyKPIs).forEach(m => {
+                        if (!this.state.monthlyKPIs[m].manual) {
+                            this.state.monthlyKPIs[m].manual = {};
+                        }
+                    });
+                }
+
+                // Initialize vendor monthly KPIs structure for each vendor
+                if (!this.state.vendorMonthlyKPIs) {
+                    this.state.vendorMonthlyKPIs = {};
+                }
+                const numVendors = this.state.data.rows.length;
+                for (let i = 0; i < numVendors; i++) {
+                    if (!this.state.vendorMonthlyKPIs[i]) {
+                        this.state.vendorMonthlyKPIs[i] = {};
+                    }
+                    // Se meses default existem no monthlyKPIs, inicializar também para vendedores
+                    const monthKeys = Object.keys(this.state.monthlyKPIs || {});
+                    monthKeys.forEach(m => {
+                        if (!this.state.vendorMonthlyKPIs[i][m]) {
+                            this.state.vendorMonthlyKPIs[i][m] = { revenue: 0, contracts: 0, cards: 0 };
+                        }
+                    });
+                }
+                // Ensure monthly totals reflect vendor monthly KPIs
+                if (typeof this.recalculateMonthlyTotals === 'function') {
+                    this.recalculateMonthlyTotals();
+                }
+
+                this.render();
+                this.setupEventListeners();
+            }
+
+            loadDemoData() {
+                this.state.data.rows = [
+                    { Nome: 'Alisson', Contratos: 10, Faturamento: 364450, Cartoes: 89, Nivel: 'Diamante', Badges: 8 },
+                    { Nome: 'Sarah', Contratos: 6, Faturamento: 256150, Cartoes: 386, Nivel: 'Ouro', Badges: 5 },
+                    { Nome: 'Vitor F.', Contratos: 22, Faturamento: 180940, Cartoes: 341, Nivel: 'Platina', Badges: 6 },
+                    { Nome: 'João Silva', Contratos: 8, Faturamento: 145000, Cartoes: 156, Nivel: 'Prata', Badges: 3 },
+                    { Nome: 'Maria Santos', Contratos: 5, Faturamento: 98000, Cartoes: 178, Nivel: 'Bronze', Badges: 2 },
+                    { Nome: 'Carlos Lima', Contratos: 12, Faturamento: 220000, Cartoes: 195, Nivel: 'Ouro', Badges: 4 },
+                    { Nome: 'Ana Costa', Contratos: 9, Faturamento: 185000, Cartoes: 167, Nivel: 'Prata', Badges: 3 }
+                ];
+            }
+
+            loadFromStorage() {
+                const saved = localStorage.getItem('lecardDashboardState');
+                if (saved) {
+                    try {
+                        const parsed = JSON.parse(saved);
+                        this.state = { ...this.state, ...parsed };
+                    } catch (e) {}
+                }
+            }
+
+            saveToStorage() {
+                localStorage.setItem('lecardDashboardState', JSON.stringify(this.state));
+            }
+
+            // ==================== CALCULATIONS ====================
+            getTotals() {
+                return {
+                    contracts: this.state.data.rows.reduce((sum, row) => sum + (parseFloat(row.Contratos) || 0), 0),
+                    revenue: this.state.data.rows.reduce((sum, row) => sum + (parseFloat(row.Faturamento) || 0), 0),
+                    cards: this.state.data.rows.reduce((sum, row) => sum + (parseFloat(row.Cartoes) || 0), 0)
+                };
+            }
+
+            getSectorGoals() {
+                const numVendors = this.state.data.rows.length;
+                return {
+                    contracts: 15 * numVendors,
+                    revenue: 297000 * numVendors,
+                    cards: 540 * numVendors
+                };
+            }
+
+            getAchievement() {
+                const totals = this.getTotals();
+                const goals = this.getSectorGoals();
+                return {
+                    revenue: ((totals.revenue / goals.revenue) * 100).toFixed(1),
+                    contracts: ((totals.contracts / goals.contracts) * 100).toFixed(1)
+                };
+            }
+
+            getRanking() {
+                return [...this.state.data.rows]
+                    .sort((a, b) => (parseFloat(b.Faturamento) || 0) - (parseFloat(a.Faturamento) || 0));
+            }
+
+            getLevel(percentage) {
+                if (percentage >= 110) return 'Diamante';
+                if (percentage >= 90) return 'Platina';
+                if (percentage >= 70) return 'Ouro';
+                if (percentage >= 40) return 'Prata';
+                return 'Bronze';
+            }
+
+            getLevelClass(level) {
+                return level.toLowerCase();
+            }
+
+            // ==================== FORMATTING ====================
+            formatCurrency(value) {
+                return new Intl.NumberFormat('pt-BR', {
+                    style: 'currency',
+                    currency: 'BRL',
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 0
+                }).format(value);
+            }
+
+            formatNumber(value) {
+                return new Intl.NumberFormat('pt-BR').format(Math.round(value));
+            }
+
+            formatCompact(value) {
+                if (value >= 1000000) {
+                    return (value / 1000000).toFixed(1) + 'M';
+                }
+                if (value >= 1000) {
+                    return (value / 1000).toFixed(0) + 'K';
+                }
+                return value.toString();
+            }
+
+            // ==================== NAVIGATION ====================
+            setPage(pageId) {
+                this.state.currentPage = pageId;
+                
+                // Update active nav item
+                document.querySelectorAll('.nav-item').forEach(item => {
+                    item.classList.remove('active');
+                });
+                event.currentTarget.classList.add('active');
+                
+                this.render();
+            }
+
+            // ==================== RENDERING ====================
+            render() {
+                const main = document.getElementById('mainContent');
+                
+                switch(this.state.currentPage) {
+                    case 'dashboard':
+                        main.innerHTML = this.renderDashboard();
+                        break;
+                    case 'projections':
+                        main.innerHTML = this.renderProjections();
+                        break;
+                    case 'arena':
+                        main.innerHTML = this.renderArena();
+                        break;
+                    case 'monthlyKPIs':
+                        main.innerHTML = this.renderMonthlyKPIs();
+                        break;
+                    // case 'profile' is removed; the profile page is no longer available
+                }
+
+                // After rendering HTML, apply any saved customisations and enable editing if necessary
+                if (typeof this.applyCustomizations === 'function') {
+                    this.applyCustomizations();
+                }
+                if (typeof this.updateEditableElements === 'function') {
+                    this.updateEditableElements();
+                }
+            }
+
+            renderDashboard() {
+                const totals = this.getTotals();
+                const goals = this.getSectorGoals();
+                const achievement = this.getAchievement();
+                const ranking = this.getRanking();
+                // Use manual overrides for card values if defined
+                const cardVals = this.state.cardValues || {};
+                const revenueValue = (cardVals.revenue !== null && cardVals.revenue !== undefined) ? cardVals.revenue : totals.revenue;
+                const contractsValue = (cardVals.contracts !== null && cardVals.contracts !== undefined) ? cardVals.contracts : totals.contracts;
+                const cardsValue = (cardVals.cards !== null && cardVals.cards !== undefined) ? cardVals.cards : totals.cards;
+                // Compute ticket médio from manual values if both present, otherwise default to totals ratio
+                const defaultTicketMedio = contractsValue ? (revenueValue / contractsValue) : (totals.contracts ? (totals.revenue / totals.contracts) : 0);
+                const ticketMedioValue = (cardVals.ticketMedio !== null && cardVals.ticketMedio !== undefined) ? cardVals.ticketMedio : defaultTicketMedio;
+
+                return `
+                    <div class="page-header slide-up">
+                        <h1 class="page-title" data-key="dashboard.title">Dashboard Real-Time</h1>
+                        <p class="page-subtitle" data-key="dashboard.subtitle">Acompanhe o desempenho da equipe em tempo real</p>
+                    </div>
+
+                    <div class="stats-grid slide-up">
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <div class="stat-icon">💰</div>
+                                <div class="stat-trend up">↑ ${achievement.revenue}%</div>
+                            </div>
+                            <div class="stat-label" data-key="dashboard.stats.revenue.label">Faturamento Total</div>
+                            <div class="stat-value" data-edit-path="cardValues.revenue">${this.formatCurrency(Number(revenueValue))}</div>
+                            <div class="stat-subtitle">
+                                <span data-key="dashboard.stats.revenue.metaPrefix">Meta:</span>
+                                ${this.formatCurrency(goals.revenue)}
+                            </div>
+                            <div class="stat-progress">
+                                <div class="progress-bar-bg">
+                                    <div class="progress-bar-fill" style="width: ${achievement.revenue}%"></div>
+                                </div>
+                                <div class="progress-label">
+                                    <span>${achievement.revenue}% da meta</span>
+                                    <span>${this.formatCurrency(goals.revenue - totals.revenue)} restante</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <div class="stat-icon">📝</div>
+                                <div class="stat-trend up">↑ ${achievement.contracts}%</div>
+                            </div>
+                            <div class="stat-label" data-key="dashboard.stats.contracts.label">Contratos Fechados</div>
+                            <div class="stat-value" data-edit-path="cardValues.contracts">${this.formatNumber(Number(contractsValue))}</div>
+                            <div class="stat-subtitle">
+                                <span data-key="dashboard.stats.contracts.metaPrefix">Meta:</span>
+                                ${goals.contracts}
+                                <span data-key="dashboard.stats.contracts.unitLabel">contratos</span>
+                            </div>
+                            <div class="stat-progress">
+                                <div class="progress-bar-bg">
+                                    <div class="progress-bar-fill" style="width: ${achievement.contracts}%"></div>
+                                </div>
+                                <div class="progress-label">
+                                    <span>${achievement.contracts}% da meta</span>
+                                    <span>${goals.contracts - totals.contracts} faltam</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <div class="stat-icon">💳</div>
+                                <div class="stat-trend up">↑ 12.5%</div>
+                            </div>
+                            <div class="stat-label" data-key="dashboard.stats.cards.label">Cartões Emitidos</div>
+                            <div class="stat-value" data-edit-path="cardValues.cards">${this.formatNumber(Number(cardsValue))}</div>
+                            <div class="stat-subtitle">
+                                <span data-key="dashboard.stats.cards.metaPrefix">Meta:</span>
+                                ${this.formatNumber(goals.cards)}
+                                <span data-key="dashboard.stats.cards.unitLabel">cartões</span>
+                            </div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <div class="stat-icon">🎯</div>
+                            </div>
+                            <div class="stat-label" data-key="dashboard.stats.ticket.label">Ticket Médio</div>
+                            <div class="stat-value" data-edit-path="cardValues.ticketMedio">${this.formatCurrency(Number(ticketMedioValue))}</div>
+                            <div class="stat-subtitle" data-key="dashboard.stats.ticket.subtitle">Por contrato fechado</div>
+                        </div>
+                    </div>
+
+                    <div class="ranking-section slide-up">
+                        <div class="ranking-header">
+                            <h2 class="ranking-title">
+                                <span>🏆</span>
+                                <span data-key="dashboard.ranking.title">Ranking LeCard</span>
+                            </h2>
+                            <div class="ranking-filters">
+                                <button class="filter-btn active">Todos</button>
+                                <button class="filter-btn">Internos</button>
+                                <button class="filter-btn">Externos</button>
+                            </div>
+                        </div>
+
+                        <div class="ranking-list">
+                            ${ranking.slice(0, 10).map((seller, index) => {
+                                const position = index + 1;
+                                const posText = position === 1 ? '1º' : position === 2 ? '2º' : position === 3 ? '3º' : `${position}º`;
+                                const medal = position === 1 ? '🥇' : position === 2 ? '🥈' : position === 3 ? '🥉' : '🏅';
+                                const customPhoto = (this.state.photos && this.state.photos[index]) ? this.state.photos[index] : null;
+                                const photo = customPhoto || `https://ui-avatars.com/api/?name=${encodeURIComponent(seller.Nome)}&background=FCD34D&color=1F2937&size=100`;
+                                const percentIndividual = ((seller.Faturamento / 297000) * 100).toFixed(1);
+                                const level = this.getLevel(percentIndividual);
+                                const levelClass = this.getLevelClass(level);
+
+                                return `
+                                    <div class="ranking-item rank-${position}">
+                                        <div class="ranking-position rank-${position}">${posText}</div>
+                                        <img src="${photo}" alt="${seller.Nome}" class="ranking-avatar" data-photo-index="${index}">
+                                        <div class="ranking-info">
+                                            <div class="ranking-name" data-seller-index="${index}" data-seller-field="Nome">${seller.Nome}<span class="ranking-kpi-edit" data-vendor-index="${index}" title="Editar KPIs mensais" onclick="event.stopPropagation(); app.editVendorMonthlyKPIs(${index});">📅</span></div>
+                                            <div class="ranking-level">
+                                                <span class="level-badge ${levelClass}">${level}</span>
+                                                <span data-seller-index="${index}" data-seller-field="Badges">${seller.Badges || 0} badges</span>
+                                            </div>
+                                        </div>
+                                        <div class="ranking-stat">
+                                            <div class="ranking-stat-value" data-seller-index="${index}" data-seller-field="Contratos">${seller.Contratos}</div>
+                                            <div class="ranking-stat-label" data-key="ranking.stats.contracts.label">Contratos</div>
+                                        </div>
+                                        <div class="ranking-stat">
+                                            <div class="ranking-stat-value" data-seller-index="${index}" data-seller-field="Faturamento">${this.formatCurrency(seller.Faturamento)}</div>
+                                            <div class="ranking-stat-label" data-key="ranking.stats.revenue.label">Faturamento</div>
+                                        </div>
+                                        <div class="ranking-stat">
+                                            <div class="ranking-stat-value" data-seller-index="${index}" data-seller-field="Cartoes">${seller.Cartoes}</div>
+                                            <div class="ranking-stat-label" data-key="ranking.stats.cards.label">Cartões</div>
+                                        </div>
+                                        <div class="ranking-medal">
+                                            ${medal}
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            renderProjections() {
+                return `
+                    <div class="page-header slide-up">
+                        <h1 class="page-title" data-key="projections.title">Projeções 2026</h1>
+                        <p class="page-subtitle" data-key="projections.subtitle">Análise de projeção e metas do ano</p>
+                    </div>
+
+                    <div class="stats-grid slide-up">
+                        <div class="stat-card">
+                            <div class="stat-icon">🎯</div>
+                            <div class="stat-label" data-key="projections.meta2026.label">Meta 2026</div>
+                            <div class="stat-value" data-edit-path="goals.meta2026" data-edit-type="number">${this.formatCurrency(this.state.goals.meta2026)}</div>
+                            <div class="stat-subtitle" data-key="projections.meta2026.subtitle">Objetivo anual</div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-icon">📊</div>
+                            <div class="stat-label" data-key="projections.base2025.label">Base 2025</div>
+                            <div class="stat-value" data-edit-path="goals.base2025" data-edit-type="number">${this.formatCurrency(this.state.goals.base2025)}</div>
+                            <div class="stat-subtitle" data-key="projections.base2025.subtitle">Contratos vindos de 2025</div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-icon">📈</div>
+                            <div class="stat-label" data-key="projections.total.label">Projeção Total</div>
+                            <div class="stat-value" data-edit-path="projections.projecaoTotal" data-edit-type="number">${this.formatCurrency(this.state.projections.projecaoTotal)}</div>
+                            <div class="stat-subtitle" data-key="projections.total.subtitle">Internos + Externos</div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-icon">⚠️</div>
+                            <div class="stat-label" data-key="projections.gap.label">Gap para Meta</div>
+                            <div class="stat-value" data-edit-path="goals.gap" data-edit-type="number">${this.formatCurrency(this.state.goals.gap)}</div>
+                            <div class="stat-subtitle" data-key="projections.gap.subtitle">Diferença a ser coberta</div>
+                        </div>
+                    </div>
+
+                    <div class="chart-container slide-up">
+                        <div class="chart-header">
+                            <h3 class="chart-title" data-key="projections.chart.title">📈 Evolução Mensal Projetada</h3>
+                        </div>
+                        <canvas id="projectionChart" height="100"></canvas>
+                    </div>
+
+                    <div class="stats-grid slide-up">
+                        <div class="stat-card">
+                            <div class="stat-icon">👥</div>
+                            <div class="stat-label" data-key="projections.internal.label">Vendedores Internos</div>
+                            <div class="stat-value" data-edit-path="goals.vendedoresInternos" data-edit-type="number">${this.state.goals.vendedoresInternos}</div>
+                            <div class="stat-subtitle">
+                                <span data-key="projections.internal.metaPrefix">Meta mensal:</span>
+                                <span data-edit-path="goals.metaMensalInterno" data-edit-type="number">${this.formatCurrency(this.state.goals.metaMensalInterno)}</span>
+                            </div>
+                            <div class="stat-progress">
+                                <div class="stat-subtitle">
+                                    <span data-key="projections.internal.projectionPrefix">Projeção anual:</span>
+                                    <span data-edit-path="projections.internosTotal" data-edit-type="number">${this.formatCurrency(this.state.projections.internosTotal)}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-icon">👥</div>
+                            <div class="stat-label" data-key="projections.external.label">Vendedores Externos</div>
+                            <div class="stat-value" data-edit-path="goals.vendedoresExternos" data-edit-type="number">${this.state.goals.vendedoresExternos}</div>
+                            <div class="stat-subtitle">
+                                <span data-key="projections.external.metaPrefix">Meta mensal:</span>
+                                <span data-edit-path="goals.metaMensalExterno" data-edit-type="number">${this.formatCurrency(this.state.goals.metaMensalExterno)}</span>
+                            </div>
+                            <div class="stat-progress">
+                                <div class="stat-subtitle">
+                                    <span data-key="projections.external.projectionPrefix">Projeção anual:</span>
+                                    <span data-edit-path="projections.externosTotal" data-edit-type="number">${this.formatCurrency(this.state.projections.externosTotal)}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            renderArena() {
+                const ranking = this.getRanking();
+                
+                return `
+                    <div class="page-header slide-up">
+                        <h1 class="page-title" data-key="arena.title">Arena Competitiva</h1>
+                        <p class="page-subtitle" data-key="arena.subtitle">Conquistas, badges e competições</p>
+                    </div>
+
+                    <div class="ranking-section slide-up">
+                        <div class="ranking-header">
+                            <h2 class="ranking-title">
+                                <span>🏆</span>
+                                <span data-key="arena.ranking.title">Leaderboard Completo</span>
+                            </h2>
+                        </div>
+
+                        <div class="ranking-list">
+                            ${ranking.map((seller, index) => {
+                                const position = index + 1;
+                                const posText = `${position}º`;
+                                const medal = position === 1 ? '🥇' : position === 2 ? '🥈' : position === 3 ? '🥉' : '🏅';
+                                // Use uploaded photo if available, otherwise fallback to avatar service
+                                const customPhoto = (this.state.photos && this.state.photos[index]) ? this.state.photos[index] : null;
+                                const photo = customPhoto || `https://ui-avatars.com/api/?name=${encodeURIComponent(seller.Nome)}&background=FCD34D&color=1F2937&size=100`;
+                                const percentIndividual = ((seller.Faturamento / 297000) * 100).toFixed(1);
+                                const level = this.getLevel(percentIndividual);
+                                const levelClass = this.getLevelClass(level);
+
+                                return `
+                                    <div class="ranking-item ${position <= 3 ? `rank-${position}` : ''}">
+                                        <div class="ranking-position ${position <= 3 ? `rank-${position}` : ''}">${posText}</div>
+                                        <img src="${photo}" alt="${seller.Nome}" class="ranking-avatar" data-photo-index="${index}">
+                                        <div class="ranking-info">
+                                            <div class="ranking-name" data-seller-index="${index}" data-seller-field="Nome">${seller.Nome}<span class="ranking-kpi-edit" data-vendor-index="${index}" title="Editar KPIs mensais" onclick="event.stopPropagation(); app.editVendorMonthlyKPIs(${index});">📅</span></div>
+                                            <div class="ranking-level">
+                                                <span class="level-badge ${levelClass}">${level}</span>
+                                                <span data-seller-index="${index}" data-seller-field="Badges">${seller.Badges || 0} badges</span>
+                                            </div>
+                                        </div>
+                                        <div class="ranking-stat">
+                                            <div class="ranking-stat-value" data-seller-index="${index}" data-seller-field="Contratos">${seller.Contratos}</div>
+                                            <div class="ranking-stat-label" data-key="ranking.stats.contracts.label">Contratos</div>
+                                        </div>
+                                        <div class="ranking-stat">
+                                            <div class="ranking-stat-value" data-seller-index="${index}" data-seller-field="Faturamento">${this.formatCurrency(seller.Faturamento)}</div>
+                                            <div class="ranking-stat-label" data-key="ranking.stats.revenue.label">Faturamento</div>
+                                        </div>
+                                        <div class="ranking-stat">
+                                            <div class="ranking-stat-value">${percentIndividual}%</div>
+                                            <div class="ranking-stat-label" data-key="ranking.stats.percent.label">Da Meta</div>
+                                        </div>
+                                        <div class="ranking-medal">
+                                            ${medal}
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+
+                    <div class="chart-container slide-up">
+                        <div class="chart-header">
+                            <h3 class="chart-title" data-key="arena.achievements.title">🎖️ Conquistas Disponíveis</h3>
+                        </div>
+                        <div class="achievements-grid">
+                            ${this.renderAchievements()}
+                        </div>
+                    </div>
+                `;
+            }
+
+            renderAchievements() {
+                const achievements = [
+                    { icon: '🔥', name: 'Em Chamas', desc: '7 dias consecutivos batendo meta', locked: false },
+                    { icon: '⚡', name: 'Relâmpago', desc: '10 contratos em 1 dia', locked: false },
+                    { icon: '🚀', name: 'Foguete', desc: 'Bater 150% da meta mensal', locked: true },
+                    { icon: '👑', name: 'Rei/Rainha', desc: '#1 do ranking por 3 meses', locked: true },
+                    { icon: '💎', name: 'Diamante Bruto', desc: 'Maior contrato do mês', locked: false },
+                    { icon: '🎯', name: 'Atirador de Elite', desc: '95%+ de conversão', locked: true },
+                    { icon: '🏆', name: 'Campeão', desc: 'Bater meta 12 meses seguidos', locked: true },
+                    { icon: '⭐', name: 'Estrela Cadente', desc: 'Crescimento de 200% em 1 mês', locked: true }
+                ];
+
+                return achievements.map(achievement => `
+                    <div class="achievement-card ${achievement.locked ? 'locked' : ''}">
+                        <div class="achievement-icon">${achievement.icon}</div>
+                        <div class="achievement-name">${achievement.name}</div>
+                        <div class="achievement-desc">${achievement.desc}</div>
+                    </div>
+                `).join('');
+            }
+
+            /**
+             * Formata uma string de mês no formato YYYY-MM para exibição, por exemplo:
+             * '2026-01' -> 'Jan/2026' em português. Utiliza abreviações comuns.
+             */
+            formatMonthName(monthStr) {
+                if (!monthStr) return '';
+                const parts = monthStr.split('-');
+                if (parts.length !== 2) return monthStr;
+                const year = parts[0];
+                const month = parts[1];
+                const map = {
+                    '01': 'Jan', '02': 'Fev', '03': 'Mar', '04': 'Abr',
+                    '05': 'Mai', '06': 'Jun', '07': 'Jul', '08': 'Ago',
+                    '09': 'Set', '10': 'Out', '11': 'Nov', '12': 'Dez'
+                };
+                const monthName = map[month] || month;
+                return `${monthName}/${year}`;
+            }
+
+            /**
+             * Renderiza a página de KPIs mensais, mostrando uma tabela editável de meses e KPIs.
+             * Os valores podem ser editados em modo edição clicando nas células.
+             */
+            renderMonthlyKPIs() {
+                const months = Object.keys(this.state.monthlyKPIs || {}).sort();
+                const rows = months.map(month => {
+                    const data = this.state.monthlyKPIs[month] || {};
+                    const revenue = data.revenue !== undefined ? data.revenue : 0;
+                    const contracts = data.contracts !== undefined ? data.contracts : 0;
+                    const cards = data.cards !== undefined ? data.cards : 0;
+                    const ticket = contracts ? (revenue / contracts) : 0;
+                    return `
+                        <tr>
+                            <td>${this.formatMonthName(month)}</td>
+                            <td data-edit-month="${month}" data-edit-field="revenue">${this.formatCurrency(Number(revenue))}</td>
+                            <td data-edit-month="${month}" data-edit-field="contracts">${this.formatNumber(Number(contracts))}</td>
+                            <td data-edit-month="${month}" data-edit-field="cards">${this.formatNumber(Number(cards))}</td>
+                            <td>${this.formatCurrency(Number(ticket))}</td>
+                        </tr>
+                    `;
+                }).join('');
+                return `
+                    <div class="page-header slide-up">
+                        <h1 class="page-title" data-key="monthlyKPIs.title">KPIs Mensais</h1>
+                        <p class="page-subtitle" data-key="monthlyKPIs.subtitle">Registre e acompanhe os KPIs de cada mês</p>
+                    </div>
+                    <div class="monthly-kpi-table slide-up">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Mês</th>
+                                    <th>Faturamento</th>
+                                    <th>Contratos</th>
+                                    <th>Cartões</th>
+                                    <th>Ticket Médio</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rows}
+                            </tbody>
+                        </table>
+                    </div>
+                    <button class="btn-add-month" onclick="app.addMonth()">➕ Adicionar Mês</button>
+                `;
+            }
+
+            /**
+             * Manipulador de edição para células de KPI mensais. Solicita novo valor e atualiza o estado.
+             */
+            handleEditMonthKPI(event) {
+                const month = event.currentTarget.getAttribute('data-edit-month');
+                const field = event.currentTarget.getAttribute('data-edit-field');
+                if (!month || !field) return;
+                const currentData = (this.state.monthlyKPIs && this.state.monthlyKPIs[month]) ? this.state.monthlyKPIs[month] : {};
+                const currentVal = currentData[field] || 0;
+                const promptMessage = `Digite novo valor para ${field} de ${this.formatMonthName(month)}`;
+                const input = window.prompt(promptMessage, currentVal);
+                if (input === null) return;
+                const numeric = input.toString().replace(/[^0-9,.-]/g, '').replace(',', '.');
+                const parsed = parseFloat(numeric);
+                const newValue = !isNaN(parsed) ? parsed : 0;
+                if (!this.state.monthlyKPIs) {
+                    this.state.monthlyKPIs = {};
+                }
+                if (!this.state.monthlyKPIs[month]) {
+                    this.state.monthlyKPIs[month] = { revenue: 0, contracts: 0, cards: 0, manual: {} };
+                }
+                if (!this.state.monthlyKPIs[month].manual) {
+                    this.state.monthlyKPIs[month].manual = {};
+                }
+                // Set manual override for this field
+                this.state.monthlyKPIs[month].manual[field] = true;
+                this.state.monthlyKPIs[month][field] = newValue;
+                this.saveToStorage();
+                this.render();
+            }
+
+            /**
+             * Adiciona um novo mês ao registro de KPIs. Calcula o próximo mês com base no último inserido.
+             * Não permite adicionar meses após dezembro de 2026.
+             */
+            addMonth() {
+                const months = Object.keys(this.state.monthlyKPIs || {}).sort();
+                let next;
+                if (months.length === 0) {
+                    next = '2026-01';
+                } else {
+                    const last = months[months.length - 1];
+                    const parts = last.split('-');
+                    let year = parseInt(parts[0]);
+                    let month = parseInt(parts[1]);
+                    month += 1;
+                    if (month > 12) {
+                        month = 1;
+                        year += 1;
+                    }
+                    // Limit to December 2026
+                    if (year > 2026 || (year === 2026 && month > 12)) {
+                        this.showToast('Não é possível adicionar mais meses além de 2026.', 'error');
+                        return;
+                    }
+                    next = `${year}-${month.toString().padStart(2, '0')}`;
+                }
+                // Inicializar o novo mês nas estruturas agregada e por vendedor
+                if (!this.state.monthlyKPIs) {
+                    this.state.monthlyKPIs = {};
+                }
+                // Se já existe um registro para o mês, manter manual flags; caso contrário, criar
+                if (!this.state.monthlyKPIs[next]) {
+                    this.state.monthlyKPIs[next] = { revenue: 0, contracts: 0, cards: 0, manual: {} };
+                } else if (!this.state.monthlyKPIs[next].manual) {
+                    this.state.monthlyKPIs[next].manual = {};
+                }
+                // Inicializar o novo mês para cada vendedor com valores zerados
+                if (!this.state.vendorMonthlyKPIs) {
+                    this.state.vendorMonthlyKPIs = {};
+                }
+                const numVendors = this.state.data.rows.length;
+                for (let i = 0; i < numVendors; i++) {
+                    if (!this.state.vendorMonthlyKPIs[i]) {
+                        this.state.vendorMonthlyKPIs[i] = {};
+                    }
+                    if (!this.state.vendorMonthlyKPIs[i][next]) {
+                        this.state.vendorMonthlyKPIs[i][next] = { revenue: 0, contracts: 0, cards: 0 };
+                    }
+                }
+                // Recalcular totais mensais após adicionar o mês
+                this.recalculateMonthlyTotals();
+                this.saveToStorage();
+                this.render();
+            }
+
+            /**
+             * Recalcula os valores totais mensais somando os KPIs de todos os vendedores.
+             * Atualiza this.state.monthlyKPIs para refletir os totais calculados.
+             */
+            recalculateMonthlyTotals() {
+                const computedTotals = {};
+                // Somar valores de cada vendedor
+                if (this.state.vendorMonthlyKPIs) {
+                    Object.keys(this.state.vendorMonthlyKPIs).forEach(vendorIndex => {
+                        const vendorData = this.state.vendorMonthlyKPIs[vendorIndex] || {};
+                        Object.keys(vendorData).forEach(month => {
+                            const data = vendorData[month] || {};
+                            if (!computedTotals[month]) {
+                                computedTotals[month] = { revenue: 0, contracts: 0, cards: 0 };
+                            }
+                            computedTotals[month].revenue += parseFloat(data.revenue) || 0;
+                            computedTotals[month].contracts += parseFloat(data.contracts) || 0;
+                            computedTotals[month].cards += parseFloat(data.cards) || 0;
+                        });
+                    });
+                }
+                // Atualizar monthlyKPIs com os totais calculados, preservando valores manuais
+                const updated = {};
+                const allMonths = new Set([
+                    ...Object.keys(computedTotals || {}),
+                    ...Object.keys(this.state.monthlyKPIs || {})
+                ]);
+                allMonths.forEach(month => {
+                    const manualEntry = (this.state.monthlyKPIs && this.state.monthlyKPIs[month]) ? this.state.monthlyKPIs[month] : { revenue: 0, contracts: 0, cards: 0, manual: {} };
+                    if (!manualEntry.manual) {
+                        manualEntry.manual = {};
+                    }
+                    const computed = computedTotals[month] || { revenue: 0, contracts: 0, cards: 0 };
+                    // Use manual value if there is a manual flag for the field; otherwise computed
+                    const revenue = manualEntry.manual.revenue ? manualEntry.revenue : computed.revenue;
+                    const contracts = manualEntry.manual.contracts ? manualEntry.contracts : computed.contracts;
+                    const cards = manualEntry.manual.cards ? manualEntry.cards : computed.cards;
+                    updated[month] = { revenue, contracts, cards, manual: manualEntry.manual };
+                });
+                this.state.monthlyKPIs = updated;
+            }
+
+            /**
+             * Permite editar KPIs mensais para um vendedor específico.
+             * Solicita ao usuário o mês e os valores para faturamento, contratos e cartões.
+             */
+            editVendorMonthlyKPIs(index) {
+                const month = window.prompt('Digite o mês (YYYY-MM) para editar (ex: 2026-03)', '2026-03');
+                if (!month) return;
+                // Normalizar formato (usar dois dígitos no mês)
+                const parts = month.split('-');
+                let normalized = month;
+                if (parts.length === 2) {
+                    const y = parts[0];
+                    let m = parts[1];
+                    if (m.length === 1) {
+                        m = '0' + m;
+                    }
+                    normalized = `${y}-${m}`;
+                }
+                const vendorData = (this.state.vendorMonthlyKPIs && this.state.vendorMonthlyKPIs[index]) ? this.state.vendorMonthlyKPIs[index] : {};
+                const current = vendorData[normalized] || { revenue: 0, contracts: 0, cards: 0 };
+                const input = window.prompt(`Digite faturamento, contratos, cartões para ${this.formatMonthName(normalized)} separados por vírgula`, `${current.revenue}, ${current.contracts}, ${current.cards}`);
+                if (input === null || input === undefined) return;
+                const partsInput = input.split(',');
+                let revenue = parseFloat(partsInput[0] ? partsInput[0].toString().replace(/[^0-9,.-]/g, '').replace(',', '.') : '') || 0;
+                let contracts = parseFloat(partsInput[1] ? partsInput[1].toString().replace(/[^0-9,.-]/g, '').replace(',', '.') : '') || 0;
+                let cards = parseFloat(partsInput[2] ? partsInput[2].toString().replace(/[^0-9,.-]/g, '').replace(',', '.') : '') || 0;
+                if (!this.state.vendorMonthlyKPIs) {
+                    this.state.vendorMonthlyKPIs = {};
+                }
+                if (!this.state.vendorMonthlyKPIs[index]) {
+                    this.state.vendorMonthlyKPIs[index] = {};
+                }
+                this.state.vendorMonthlyKPIs[index][normalized] = { revenue, contracts, cards };
+                // Recalcular totais agregados
+                this.recalculateMonthlyTotals();
+                this.saveToStorage();
+                this.render();
+            }
+
+            renderProfile() {
+                const totals = this.getTotals();
+                const ranking = this.getRanking();
+                const myPosition = ranking.findIndex(s => s.Nome === this.state.currentUser.name) + 1;
+                
+                return `
+                    <div class="page-header slide-up">
+                        <h1 class="page-title" data-key="profile.title">Meu Perfil</h1>
+                        <p class="page-subtitle" data-key="profile.subtitle">Acompanhe sua performance individual</p>
+                    </div>
+
+                    <div class="stats-grid slide-up">
+                        <div class="stat-card">
+                            <div class="stat-icon">🏆</div>
+                            <div class="stat-label" data-key="profile.position.label">Posição no Ranking</div>
+                            <div class="stat-value">#${myPosition}</div>
+                            <div class="stat-subtitle">de ${ranking.length} vendedores</div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-icon">🔥</div>
+                            <div class="stat-label" data-key="profile.streak.label">Streak Atual</div>
+                            <div class="stat-value">${this.state.currentUser.streak} dias</div>
+                            <div class="stat-subtitle">Consecutivos batendo meta</div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-icon">🎖️</div>
+                            <div class="stat-label" data-key="profile.badges.label">Badges Conquistados</div>
+                            <div class="stat-value">${this.state.currentUser.badges}</div>
+                            <div class="stat-subtitle">de 20 disponíveis</div>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-icon">⭐</div>
+                            <div class="stat-label" data-key="profile.level.label">Nível Atual</div>
+                            <div class="stat-value">${this.state.currentUser.level}</div>
+                            <div class="stat-subtitle">Continue assim!</div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // ==================== MODALS ====================
+            showDataEditor() {
+                // Ativa o modo de edição ao clicar em "Editar Dados" para que o usuário possa modificar KPIs e dados
+                if (!this.state.editMode) {
+                    this.state.editMode = true;
+                    const toggleBtn = document.getElementById('editModeToggle');
+                    if (toggleBtn) {
+                        const textSpan = toggleBtn.querySelector('span:nth-child(2)');
+                        if (textSpan) textSpan.textContent = 'Modo Visualização';
+                    }
+                    this.render();
+                    this.showToast('Modo edição ativado. Clique nos números ou textos para editar.', 'info');
+                } else {
+                    this.showToast('Você já está em modo edição.', 'info');
+                }
+            }
+
+            showSettings() {
+                const modal = document.getElementById('settingsModal');
+                if (!modal) return;
+                modal.classList.add('show');
+                // Set current colour values into the inputs when opening
+                const primaryInput = document.getElementById('color_lecard-yellow');
+                const secondaryInput = document.getElementById('color_lecard-gold');
+                // Determine fallback values from CSS variables if not customised
+                const rootStyle = getComputedStyle(document.documentElement);
+                if (primaryInput) {
+                    const savedPrimary = (this.state.customizations && this.state.customizations.colors && this.state.customizations.colors['lecard-yellow']) || rootStyle.getPropertyValue('--lecard-yellow').trim();
+                    primaryInput.value = savedPrimary;
+                }
+                if (secondaryInput) {
+                    const savedSecondary = (this.state.customizations && this.state.customizations.colors && this.state.customizations.colors['lecard-gold']) || rootStyle.getPropertyValue('--lecard-gold').trim();
+                    secondaryInput.value = savedSecondary;
+                }
+            }
+
+            closeModal(modalId) {
+                document.getElementById(modalId).classList.remove('show');
+            }
+
+            showQuickActions() {
+                // Mensagem informativa de que os KPIs podem ser editados em modo edição
+                this.showToast('Use o modo edição para alterar KPIs, metas e dados.', 'info');
+            }
+
+            // ==================== CUSTOMISATION ====================
+            /**
+             * Alterna o modo de edição do painel. Quando ativo, os elementos com o
+             * atributo data-key tornam-se editáveis. O texto do botão na barra
+             * lateral é atualizado para refletir o estado atual (modo visualização ou edição).
+             */
+            toggleEditMode() {
+                this.state.editMode = !this.state.editMode;
+                const toggleBtn = document.getElementById('editModeToggle');
+                if (toggleBtn) {
+                    const textSpan = toggleBtn.querySelector('span:nth-child(2)');
+                    if (textSpan) {
+                        textSpan.textContent = this.state.editMode ? 'Modo Visualização' : 'Editar Painel';
+                    }
+                }
+                this.render();
+            }
+
+            /**
+             * Aplica customizações salvas para cores, textos e logo. As cores são
+             * armazenadas em this.state.customizations.colors e correspondem às
+             * variáveis CSS (por exemplo, --lecard-yellow). O logo, se fornecido,
+             * substitui o texto da marca ou a imagem existente.
+             */
+            applyCustomizations() {
+                const { customizations } = this.state;
+                if (!customizations) return;
+                const { colors, logo } = customizations;
+                // Cores
+                if (colors) {
+                    Object.keys(colors).forEach(key => {
+                        if (colors[key]) {
+                            document.documentElement.style.setProperty(`--${key}`, colors[key]);
+                        }
+                    });
+                }
+                // Logo
+                if (logo) {
+                    const logoEl = document.querySelector('.logo');
+                    if (logoEl) {
+                        if (logoEl.tagName.toLowerCase() === 'img') {
+                            logoEl.src = logo;
+                        } else {
+                            logoEl.innerHTML = `<img src="${logo}" alt="Logo" style="max-width:80px; border-radius:50%;">`;
+                        }
+                    }
+                }
+            }
+
+            /**
+             * Ativa ou desativa a edição dos elementos declarados com data-key.
+             * Quando o modo de edição está ativo, os elementos tornam-se editáveis
+             * e ao perder o foco seus conteúdos são armazenados em
+             * this.state.customizations.texts.
+             */
+            updateEditableElements() {
+                const editableEls = document.querySelectorAll('[data-key]');
+                editableEls.forEach(el => {
+                    const key = el.getAttribute('data-key');
+                    // Aplicar texto salvo se existir
+                    if (this.state.customizations && this.state.customizations.texts && this.state.customizations.texts[key] !== undefined) {
+                        el.textContent = this.state.customizations.texts[key];
+                    }
+                    if (this.state.editMode) {
+                        el.contentEditable = 'true';
+                        el.style.outline = '1px dashed var(--lecard-yellow)';
+                        el.addEventListener('blur', this.handleBlur);
+                    } else {
+                        el.removeAttribute('contentEditable');
+                        el.style.outline = '';
+                        el.removeEventListener('blur', this.handleBlur);
+                    }
+                });
+
+                // Gerenciar elementos numéricos editáveis com data-edit-path
+                const numericEls = document.querySelectorAll('[data-edit-path]');
+                numericEls.forEach(el => {
+                    if (this.state.editMode) {
+                        el.style.cursor = 'pointer';
+                        el.style.textDecoration = 'underline';
+                        el.addEventListener('click', this.handleEditNumeric.bind(this));
+                    } else {
+                        el.style.cursor = '';
+                        el.style.textDecoration = '';
+                        el.removeEventListener('click', this.handleEditNumeric.bind(this));
+                    }
+                });
+
+                // Gerenciar edição de vendedores
+                const sellerEls = document.querySelectorAll('[data-seller-index]');
+                sellerEls.forEach(el => {
+                    if (this.state.editMode) {
+                        el.style.cursor = 'pointer';
+                        el.style.textDecoration = 'underline';
+                        el.addEventListener('click', this.handleEditSeller.bind(this));
+                    } else {
+                        el.style.cursor = '';
+                        el.style.textDecoration = '';
+                        el.removeEventListener('click', this.handleEditSeller.bind(this));
+                    }
+                });
+
+                // Gerenciar upload de fotos dos vendedores
+                const photoEls = document.querySelectorAll('[data-photo-index]');
+                photoEls.forEach(el => {
+                    if (this.state.editMode) {
+                        el.style.cursor = 'pointer';
+                        el.addEventListener('click', this.handleEditPhoto.bind(this));
+                    } else {
+                        el.style.cursor = '';
+                        el.removeEventListener('click', this.handleEditPhoto.bind(this));
+                    }
+                });
+
+                // Gerenciar edição de KPIs mensais
+                const monthEls = document.querySelectorAll('[data-edit-month]');
+                monthEls.forEach(el => {
+                    if (this.state.editMode) {
+                        el.style.cursor = 'pointer';
+                        el.style.textDecoration = 'underline';
+                        el.addEventListener('click', this.handleEditMonthKPI.bind(this));
+                    } else {
+                        el.style.cursor = '';
+                        el.style.textDecoration = '';
+                        el.removeEventListener('click', this.handleEditMonthKPI.bind(this));
+                    }
+                });
+
+                // Gerenciar edição de KPIs mensais por vendedor
+                const vendorEls = document.querySelectorAll('.ranking-kpi-edit');
+                // Se estiver no modo edição, primeiro remova todos os listeners clonando os elementos
+                vendorEls.forEach(el => {
+                    const vIndex = el.getAttribute('data-vendor-index');
+                    if (this.state.editMode) {
+                        el.style.cursor = 'pointer';
+                        el.style.textDecoration = 'underline';
+                        el.replaceWith(el.cloneNode(true));
+                    } else {
+                        el.style.cursor = '';
+                        el.style.textDecoration = '';
+                    }
+                });
+                // Re-selecionar elementos clonados e adicionar novos event listeners
+                const vendorElsReloaded = document.querySelectorAll('.ranking-kpi-edit');
+                vendorElsReloaded.forEach(el => {
+                    const vIndex = el.getAttribute('data-vendor-index');
+                    if (this.state.editMode) {
+                        el.style.cursor = 'pointer';
+                        el.style.textDecoration = 'underline';
+                        el.addEventListener('click', (e) => {
+                            // Evita propagação do clique para o elemento do nome do vendedor
+                            e.stopPropagation();
+                            this.editVendorMonthlyKPIs(parseInt(vIndex));
+                        });
+                    }
+                });
+            }
+
+            /**
+             * Handler para eventos de perda de foco (blur) em elementos editáveis.
+             * Atualiza o valor de texto customizado dentro de this.state.customizations.texts
+             * e persiste no localStorage.
+             */
+            handleBlur(event) {
+                const key = event.target.getAttribute('data-key');
+                if (!key) return;
+                if (!this.state.customizations) {
+                    this.state.customizations = { texts: {}, colors: {}, logo: '' };
+                }
+                if (!this.state.customizations.texts) {
+                    this.state.customizations.texts = {};
+                }
+                this.state.customizations.texts[key] = event.target.textContent.trim();
+                this.saveToStorage();
+            }
+
+            /**
+             * Persiste as configurações de cores e logo a partir do modal de Configurações.
+             * Atualiza o estado de customizações e aplica as alterações imediatamente.
+             */
+            saveSettings() {
+                if (!this.state.customizations) {
+                    this.state.customizations = { texts: {}, colors: {}, logo: '' };
+                }
+                if (!this.state.customizations.colors) {
+                    this.state.customizations.colors = {};
+                }
+                const primaryInput = document.getElementById('color_lecard-yellow');
+                const secondaryInput = document.getElementById('color_lecard-gold');
+                if (primaryInput) {
+                    this.state.customizations.colors['lecard-yellow'] = primaryInput.value;
+                }
+                if (secondaryInput) {
+                    this.state.customizations.colors['lecard-gold'] = secondaryInput.value;
+                }
+                const logoInput = document.getElementById('logoInput');
+                if (logoInput && logoInput.files && logoInput.files[0]) {
+                    const file = logoInput.files[0];
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        this.state.customizations.logo = reader.result;
+                        this.saveToStorage();
+                        this.applyCustomizations();
+                    };
+                    reader.readAsDataURL(file);
+                }
+                this.saveToStorage();
+                this.applyCustomizations();
+                this.closeModal('settingsModal');
+            }
+
+            /**
+             * Atribui um valor a uma propriedade aninhada em um objeto com base em uma string de caminho.
+             * Por exemplo, setNestedValue(obj, 'goals.meta2026', 1234) define obj.goals.meta2026 = 1234.
+             */
+            setNestedValue(obj, path, value) {
+                const keys = path.split('.');
+                let current = obj;
+                for (let i = 0; i < keys.length - 1; i++) {
+                    const k = keys[i];
+                    if (!(k in current) || typeof current[k] !== 'object') {
+                        current[k] = {};
+                    }
+                    current = current[k];
+                }
+                current[keys[keys.length - 1]] = value;
+            }
+
+            /**
+             * Edita um valor numérico do estado com base no caminho da propriedade fornecido em data-edit-path.
+             * Exibe um prompt ao usuário e atualiza o estado após a entrada.
+             */
+            editPath(path, type = 'number') {
+                // Obter valor atual para exibir no prompt
+                const keys = path.split('.');
+                let current = this.state;
+                for (let i = 0; i < keys.length; i++) {
+                    current = current[keys[i]];
+                    if (current === undefined) break;
+                }
+                const currentVal = current;
+                let promptMessage = `Digite novo valor para ${path}`;
+                const input = window.prompt(promptMessage, currentVal);
+                if (input === null) return; // usuário cancelou
+                let newValue = input;
+                if (type === 'number' || type === 'currency') {
+                    // remover caracteres não numéricos e converter para número
+                    const numeric = input.toString().replace(/[^0-9,.-]/g, '').replace(',', '.');
+                    const parsed = parseFloat(numeric);
+                    if (!isNaN(parsed)) {
+                        newValue = parsed;
+                    }
+                }
+                this.setNestedValue(this.state, path, newValue);
+                this.saveToStorage();
+                this.render();
+            }
+
+            /**
+             * Edita os dados de um vendedor específico (linha da tabela) com base no índice e no campo.
+             */
+            editSeller(index, field) {
+                const seller = this.state.data.rows[index];
+                if (!seller) return;
+                const currentVal = seller[field];
+                const input = window.prompt(`Digite novo valor para ${field} de ${seller.Nome}`, currentVal);
+                if (input === null) return;
+                let newValue = input;
+                // Somente os campos numéricos devem ser convertidos
+                if (['Contratos', 'Faturamento', 'Cartoes', 'Badges'].includes(field)) {
+                    const numeric = input.toString().replace(/[^0-9,.-]/g, '').replace(',', '.');
+                    const parsed = parseFloat(numeric);
+                    if (!isNaN(parsed)) {
+                        newValue = parsed;
+                    }
+                }
+                this.state.data.rows[index][field] = newValue;
+                this.saveToStorage();
+                this.render();
+            }
+
+            /**
+             * Manipulador para elementos numéricos com data-edit-path. Chama editPath com o caminho definido.
+             */
+            handleEditNumeric(event) {
+                const path = event.currentTarget.getAttribute('data-edit-path');
+                const type = event.currentTarget.getAttribute('data-edit-type') || 'number';
+                if (path) {
+                    this.editPath(path, type);
+                }
+            }
+
+            /**
+             * Manipulador para edição de vendedores. Obtém índice e campo dos atributos data-seller-index e data-seller-field.
+             */
+            handleEditSeller(event) {
+                const index = event.currentTarget.getAttribute('data-seller-index');
+                const field = event.currentTarget.getAttribute('data-seller-field');
+                if (index !== null && field) {
+                    this.editSeller(parseInt(index), field);
+                }
+            }
+
+            /**
+             * Alterna a visibilidade da barra lateral.
+             * Quando oculta, a classe sidebar-hidden é aplicada ao body
+             * para ajustar o layout e ocultar o menu.
+             */
+            toggleSidebar() {
+                this.state.sidebarHidden = !this.state.sidebarHidden;
+                const body = document.body;
+                if (body) {
+                    if (this.state.sidebarHidden) {
+                        body.classList.add('sidebar-hidden');
+                    } else {
+                        body.classList.remove('sidebar-hidden');
+                    }
+                }
+                this.saveToStorage();
+            }
+
+            /**
+             * Abre um seletor de arquivos para carregar uma foto do vendedor.
+             * A imagem é armazenada em this.state.photos[index] como base64 e
+             * persistida no localStorage.
+             */
+            uploadPhoto(index) {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'image/*';
+                input.onchange = (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        if (!this.state.photos) {
+                            this.state.photos = {};
+                        }
+                        this.state.photos[index] = reader.result;
+                        this.saveToStorage();
+                        this.render();
+                    };
+                    reader.readAsDataURL(file);
+                };
+                input.click();
+            }
+
+            /**
+             * Manipulador para clique em fotos de vendedores. Chama uploadPhoto
+             * com o índice obtido do atributo data-photo-index.
+             */
+            handleEditPhoto(event) {
+                const index = event.currentTarget.getAttribute('data-photo-index');
+                if (index !== null) {
+                    this.uploadPhoto(index);
+                }
+            }
+
+            // ==================== IMPORT/EXPORT ====================
+            async importExcel() {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.xlsx,.xls,.csv';
+                input.onchange = async (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    try {
+                        this.showToast('Excel importado com sucesso!', 'success');
+                    } catch (error) {
+                        this.showToast('Erro ao importar Excel', 'error');
+                    }
+                };
+                input.click();
+            }
+
+            // ==================== UTILITIES ====================
+            showToast(message, type = 'info') {
+                const toast = document.createElement('div');
+                toast.className = `toast toast-${type}`;
+                toast.innerHTML = `
+                    <span style="font-size: 24px;">${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'}</span>
+                    <span style="font-weight: 600; color: white;">${message}</span>
+                `;
+                document.body.appendChild(toast);
+                setTimeout(() => toast.classList.add('show'), 10);
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                    setTimeout(() => toast.remove(), 300);
+                }, 3000);
+            }
+
+            setupEventListeners() {
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') {
+                        document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('show'));
+                    }
+                });
+            }
+        }
+
+        // ==================== INITIALIZE ====================
+        let app;
+        document.addEventListener('DOMContentLoaded', () => {
+            app = new LeCardDashboard();
+        });
+    </script>
+</body>
+</html>
