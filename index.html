@@ -189,6 +189,10 @@ function LeCardDashboard() {
   useEffect(() => {
     if (skipSave.current) { skipSave.current = false; return; }
     if (!state) return;
+    // Avoid overwriting the remote database with an empty vendor list. Only save
+    // when there are vendors present. This helps prevent situations where
+    // toggling edit mode with an empty state wipes all data from Firebase.
+    if ((state?.data?.rows || []).length === 0) return;
     fbSet('state', state).then(() => setSyncStatus('connected')).catch(() => setSyncStatus('offline'));
   }, [state]);
 
@@ -248,7 +252,8 @@ function LeCardDashboard() {
 
   const editSeller = (origIndex, field) => {
     if (!editMode) return;
-    const seller = rows[origIndex];
+    // Retrieve seller from the current state; avoid referencing `rows` outside of render.
+    const seller = (state?.data?.rows || [])[origIndex];
     if (!seller) return;
     const current = seller[field];
     const input = window.prompt(`Novo valor para ${field} de ${seller.Nome}:`, current);
@@ -281,8 +286,9 @@ function LeCardDashboard() {
   };
 
   const deleteVendor = (index) => {
-    if (!window.confirm(`Excluir ${rows[index]?.Nome}?`)) return;
-    const name = rows[index]?.Nome;
+    const currentRows = state?.data?.rows || [];
+    if (!window.confirm(`Excluir ${currentRows[index]?.Nome}?`)) return;
+    const name = currentRows[index]?.Nome;
     updateState(s => {
       s.data.rows.splice(index, 1);
       // Reindex photos
@@ -405,7 +411,8 @@ function LeCardDashboard() {
   };
 
   const registerSale = (index) => {
-    const seller = rows[index];
+    // Read seller from state rather than a captured `rows` array.
+    const seller = (state?.data?.rows || [])[index];
     if (!seller) return;
     updateState(s => {
       if (!s.vendorStatus) s.vendorStatus = {};
@@ -420,7 +427,10 @@ function LeCardDashboard() {
   // 'normal' we set the last sale date to yesterday; to switch to 'fire' we set the last sale date
   // to today; and to switch to 'freezing' we enable the forcedFreeze flag.
   const toggleThermalStatus = (index) => {
-    const seller = rows[index];
+    // Retrieve the seller from the current state; the local `rows` variable is not
+    // in scope here, so directly access state.data.rows. This avoids errors
+    // when toggling statuses.
+    const seller = (state?.data?.rows || [])[index];
     const vs = state.vendorStatus?.[index] || {};
     const currentStatus = getVendorThermal(vs);
     updateState(s => {
