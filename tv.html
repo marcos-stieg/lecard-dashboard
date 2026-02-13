@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Painel de TV – LeCard Dashboard</title>
+  <!-- Fonte Inter -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <!-- Base styles for dark theme and simple scrollbars -->
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow-x: hidden;
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: #1F2937;
+      color: #F8FAFC;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(252, 211, 77, 0.3);
+      border-radius: 3px;
+    }
+    /* Animações de fogo e gelo reaproveitadas do dashboard principal */
+    @keyframes fireGlow {
+      0% { box-shadow: 0 0 8px #ff6600, 0 0 16px #ff4400, 0 0 24px rgba(255,68,0,0.4); border-color: #ff6600; }
+      25% { box-shadow: 0 0 12px #ff8800, 0 0 24px #ff4400, 0 0 36px rgba(255,68,0,0.5); border-color: #ff8800; }
+      50% { box-shadow: 0 0 16px #ffaa00, 0 0 32px #ff6600, 0 0 48px rgba(255,68,0,0.6); border-color: #ffaa00; }
+      75% { box-shadow: 0 0 12px #ff8800, 0 0 24px #ff4400, 0 0 36px rgba(255,68,0,0.5); border-color: #ff8800; }
+      100% { box-shadow: 0 0 8px #ff6600, 0 0 16px #ff4400, 0 0 24px rgba(255,68,0,0.4); border-color: #ff6600; }
+    }
+    @keyframes fireShake {
+      0%, 100% { transform: translateX(0); }
+      10% { transform: translateX(-1px) rotate(-0.5deg); }
+      20% { transform: translateX(1px) rotate(0.5deg); }
+      30% { transform: translateX(-1px); }
+      40% { transform: translateX(1px); }
+      50% { transform: translateX(0); }
+    }
+    @keyframes fireEmoji {
+      0%, 100% { transform: scale(1) rotate(0deg); }
+      25% { transform: scale(1.2) rotate(-5deg); }
+      50% { transform: scale(1.3) rotate(5deg); }
+      75% { transform: scale(1.1) rotate(-3deg); }
+    }
+    @keyframes freezeGlow {
+      0% { box-shadow: 0 0 8px #00bfff, 0 0 16px #0080ff, 0 0 24px rgba(0,128,255,0.3); border-color: #00bfff; }
+      50% { box-shadow: 0 0 16px #80dfff, 0 0 32px #00bfff, 0 0 48px rgba(0,191,255,0.4); border-color: #80dfff; }
+      100% { box-shadow: 0 0 8px #00bfff, 0 0 16px #0080ff, 0 0 24px rgba(0,128,255,0.3); border-color: #00bfff; }
+    }
+    @keyframes freezePulse {
+      0%, 100% { opacity: 1; filter: brightness(1); }
+      50% { opacity: 0.85; filter: brightness(1.1) saturate(0.7); }
+    }
+    @keyframes freezeEmoji {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.15) rotate(3deg); }
+    }
+    .fire-item { animation: fireGlow 1.5s ease-in-out infinite, fireShake 3s ease-in-out infinite; }
+    .fire-emoji { animation: fireEmoji 0.8s ease-in-out infinite; display: inline-block; }
+    .freeze-item { animation: freezeGlow 2s ease-in-out infinite, freezePulse 3s ease-in-out infinite; }
+    .freeze-emoji { animation: freezeEmoji 2s ease-in-out infinite; display: inline-block; }
+  </style>
+  <!-- React, ReactDOM e Babel -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="tv-root"></div>
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // ==================== FIREBASE CONFIG ====================
+    // Esta URL deve corresponder à base de dados utilizada pelo dashboard principal.
+    const FIREBASE_DB_URL = 'https://acompanhamento-comercial-a28ab-default-rtdb.firebaseio.com';
+
+    async function fbGet(path) {
+      try {
+        const res = await fetch(`${FIREBASE_DB_URL}/${path}.json`);
+        return res.json();
+      } catch (e) {
+        return null;
+      }
+    }
+
+    // ==================== HELPERS ====================
+    const formatCurrency = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v || 0);
+    const formatNumber = (v) => new Intl.NumberFormat('pt-BR').format(Math.round(v || 0));
+    const getLevel = (pct) => { if (pct >= 110) return 'Diamante'; if (pct >= 90) return 'Platina'; if (pct >= 70) return 'Ouro'; if (pct >= 40) return 'Prata'; return 'Bronze'; };
+    const getLevelClass = (l) => l.toLowerCase();
+    const levelColors = { bronze: '#CD7F32', prata: '#C0C0C0', ouro: '#FFD700', platina: '#E5E4E2', diamante: '#B9F2FF' };
+    const getLevelColor = (level) => levelColors[getLevelClass(level)] || '#CD7F32';
+
+    const getToday = () => {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+    const daysDiff = (dateStr) => {
+      if (!dateStr) return 999;
+      const d = new Date(dateStr + 'T00:00:00');
+      const now = new Date();
+      now.setHours(0,0,0,0);
+      return Math.floor((now - d) / 86400000);
+    };
+    const getVendorThermal = (statusObj) => {
+      if (!statusObj || !statusObj.lastSaleDate) return 'freezing';
+      const diff = daysDiff(statusObj.lastSaleDate);
+      if (diff === 0) return 'fire';
+      if (diff >= 2) return 'freezing';
+      return 'normal';
+    };
+
+    // ==================== TV DASHBOARD COMPONENT ====================
+    function TvDashboard() {
+      const [state, setState] = useState(null);
+
+      // Carrega dados do Firebase e atualiza a cada 5 segundos
+      useEffect(() => {
+        let isMounted = true;
+        async function load() {
+          const data = await fbGet('state');
+          if (!isMounted) return;
+          if (data && data.data && data.data.rows) {
+            const { _meta, ...clean } = data;
+            setState(clean);
+          }
+        }
+        load();
+        const timer = setInterval(load, 5000);
+        return () => { isMounted = false; clearInterval(timer); };
+      }, []);
+
+      // O modo TV não rotaciona mais entre páginas individuais; em vez disso,
+      // exibe todos os vendedores em uma única lista. Por isso, não
+      // precisamos de um índice de página nem de temporizador de rotação.
+
+      // Monta a lista de páginas: uma de KPIs + diversas de ranking
+      const buildPages = () => {
+        if (!state) return [];
+        const rows = state.data?.rows || [];
+        // Ordena ranking pelo faturamento de forma decrescente
+        const ranking = [...rows].sort((a,b) => (parseFloat(b.Faturamento) || 0) - (parseFloat(a.Faturamento) || 0));
+        const pages = [];
+        pages.push({ type: 'kpis' });
+        const vendorsPerPage = 5;
+        for (let i = 0; i < ranking.length; i += vendorsPerPage) {
+          pages.push({ type: 'ranking', from: i, to: Math.min(i + vendorsPerPage, ranking.length) });
+        }
+        return pages;
+      };
+
+      if (!state) {
+        return <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FCD34D', fontWeight: 700 }}>Carregando...</div>;
+      }
+
+      const rows = state.data?.rows || [];
+      const cardVals = state.cardValues || {};
+      const photos = state.photos || {};
+
+      const totals = rows.reduce((acc, s) => {
+        return {
+          contracts: acc.contracts + (parseFloat(s.Contratos) || 0),
+          revenue: acc.revenue + (parseFloat(s.Faturamento) || 0),
+          cards: acc.cards + (parseFloat(s.Cartoes) || 0)
+        };
+      }, { contracts: 0, revenue: 0, cards: 0 });
+      const revenueVal = cardVals.revenue ?? totals.revenue;
+      const contractsVal = cardVals.contracts ?? totals.contracts;
+      const cardsVal = cardVals.cards ?? totals.cards;
+      const ticketVal = contractsVal ? (revenueVal / contractsVal) : (totals.contracts ? (totals.revenue / totals.contracts) : 0);
+
+      // metas setoriais: meta mensal de 297k e 15 contratos por vendedor
+      const numVendors = rows.length;
+      const sectorGoals = { contracts: 15 * numVendors, revenue: 297000 * numVendors, cards: 540 * numVendors };
+      const achRevenue = sectorGoals.revenue ? ((revenueVal / sectorGoals.revenue) * 100).toFixed(1) : '0.0';
+      const achContracts = sectorGoals.contracts ? ((contractsVal / sectorGoals.contracts) * 100).toFixed(1) : '0.0';
+      const ranking = [...rows].sort((a,b) => (parseFloat(b.Faturamento) || 0) - (parseFloat(a.Faturamento) || 0));
+      // Não há mais rotação de páginas no modo TV. Todos os vendedores são exibidos em um único ranking.
+
+      // Contadores de status
+      const statuses = state.vendorStatus || {};
+      let fireCount = 0, freezeCount = 0;
+      ranking.forEach((s) => {
+        const idx = rows.findIndex(r => r === s);
+        const th = getVendorThermal(statuses[idx]);
+        if (th === 'fire') fireCount++;
+        else if (th === 'freezing') freezeCount++;
+      });
+      const normalCount = ranking.length - fireCount - freezeCount;
+
+      // Componente de cartão para ranking
+      const TvCard = ({ seller, pos }) => {
+        const idx = rows.findIndex(r => r === seller);
+        const pct = ((seller.Faturamento / 297000) * 100).toFixed(1);
+        const lvl = getLevel(parseFloat(pct));
+        const lc = getLevelColor(lvl);
+        const st = statuses[idx];
+        const thermal = getVendorThermal(st);
+        const fire = thermal === 'fire';
+        const freeze = thermal === 'freezing';
+        const pic = photos[idx] || `https://ui-avatars.com/api/?name=${encodeURIComponent(seller.Nome)}&background=FCD34D&color=1F2937&size=100`;
+        return (
+          <div className={`${fire ? 'fire-item' : freeze ? 'freeze-item' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 20px', borderRadius: 16, background: fire ? 'rgba(255,68,0,0.15)' : freeze ? 'rgba(0,128,255,0.15)' : 'rgba(255,255,255,0.05)', border: `2px solid ${fire ? '#ff6600' : freeze ? '#00bfff' : 'rgba(255,255,255,0.1)'}`, overflow: 'hidden' }} key={seller.Nome}>
+            <div style={{ fontSize: 28, fontWeight: 900, minWidth: 48, textAlign: 'center', color: pos <= 3 ? (pos === 1 ? '#FFD700' : pos === 2 ? '#C0C0C0' : '#CD7F32') : 'rgba(255,255,255,0.5)' }}>{pos <= 3 ? (pos === 1 ? '🥇' : pos === 2 ? '🥈' : '🥉') : `${pos}º`}</div>
+            <img src={pic} alt="Foto" style={{ width: 50, height: 50, borderRadius: '50%', objectFit: 'cover', border: `3px solid ${fire ? '#ff6600' : freeze ? '#00bfff' : '#FCD34D'}` }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 18, fontWeight: 800 }}>{seller.Nome}</span>
+                {fire && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 16, background: 'linear-gradient(135deg,#ff4400,#ff8800)', color: 'white' }}>🔥 FOGO</span>}
+                {freeze && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 16, background: 'linear-gradient(135deg,#0080ff,#00bfff)', color: 'white' }}>🥶 GELO</span>}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                <span style={{ padding: '2px 8px', borderRadius: 14, fontSize: 10, fontWeight: 700, background: `${lc}33`, color: lc, border: `1px solid ${lc}` }}>{lvl}</span>
+                <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)' }}>{pct}% da meta</span>
+              </div>
+            </div>
+            <div style={{ textAlign: 'center', minWidth: 70 }}>
+              <div style={{ fontSize: 24, fontWeight: 900, color: fire ? '#ff8800' : freeze ? '#80dfff' : '#FCD34D' }}>{seller.Contratos}</div>
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', fontWeight: 700 }}>Contratos</div>
+            </div>
+            <div style={{ textAlign: 'center', minWidth: 100 }}>
+              <div style={{ fontSize: 24, fontWeight: 900, color: fire ? '#ff8800' : freeze ? '#80dfff' : '#FCD34D' }}>{formatCurrency(seller.Faturamento)}</div>
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', fontWeight: 700 }}>Faturamento</div>
+            </div>
+            <div style={{ textAlign: 'center', minWidth: 60 }}>
+              <div style={{ fontSize: 24, fontWeight: 900, color: fire ? '#ff8800' : freeze ? '#80dfff' : '#FCD34D' }}>{seller.Cartoes}</div>
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', fontWeight: 700 }}>Cartões</div>
+            </div>
+            <div style={{ fontSize: 28, minWidth: 40, textAlign: 'center' }}>{fire ? <span className="fire-emoji">🔥</span> : freeze ? <span className="freeze-emoji">🥶</span> : ''}</div>
+          </div>
+        );
+      };
+
+      // Renderização do painel de TV completo, exibindo todos os vendedores
+      return (
+        <div style={{ padding: '24px 40px', minHeight: '100vh', display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
+          {/* Cabeçalho */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div style={{ width: 44, height: 44, background: 'linear-gradient(135deg,#FCD34D,#F59E0B)', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 900, color: '#1F2937' }}>LC</div>
+              <h1 style={{ fontSize: 24, fontWeight: 900, background: 'linear-gradient(135deg,#FCD34D,#F59E0B)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>LeCard Dashboard</h1>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 14, fontWeight: 700 }}>
+              <span>🔥 {fireCount}</span>
+              <span style={{ color: '#10B981' }}>✅ {normalCount}</span>
+              <span style={{ color: '#00bfff' }}>🥶 {freezeCount}</span>
+            </div>
+          </div>
+          {/* Cartões de KPI */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 24 }}>
+            <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(252,211,77,0.1)', position: 'relative' }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 3, background: 'linear-gradient(90deg,#FCD34D,#F59E0B)' }} />
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 6 }}>💰 Faturamento</div>
+              <div style={{ fontSize: 32, fontWeight: 900, background: 'linear-gradient(135deg, white, rgba(255,255,255,0.7))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>{formatCurrency(revenueVal)}</div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>Meta: {formatCurrency(sectorGoals.revenue)} ({achRevenue}%)</div>
+            </div>
+            <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(252,211,77,0.1)', position: 'relative' }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 3, background: 'linear-gradient(90deg,#FCD34D,#F59E0B)' }} />
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 6 }}>📝 Contratos</div>
+              <div style={{ fontSize: 32, fontWeight: 900, background: 'linear-gradient(135deg, white, rgba(255,255,255,0.7))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>{formatNumber(contractsVal)}</div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>Meta: {sectorGoals.contracts} ({achContracts}%)</div>
+            </div>
+            <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(252,211,77,0.1)', position: 'relative' }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 3, background: 'linear-gradient(90deg,#FCD34D,#F59E0B)' }} />
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 6 }}>💳 Cartões</div>
+              <div style={{ fontSize: 32, fontWeight: 900, background: 'linear-gradient(135deg, white, rgba(255,255,255,0.7))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>{formatNumber(cardsVal)}</div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>Meta: {formatNumber(sectorGoals.cards)}</div>
+            </div>
+            <div style={{ padding: 20, borderRadius: 20, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(252,211,77,0.1)', position: 'relative' }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 3, background: 'linear-gradient(90deg,#FCD34D,#F59E0B)' }} />
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 6 }}>🎯 Ticket Médio</div>
+              <div style={{ fontSize: 32, fontWeight: 900, background: 'linear-gradient(135deg, white, rgba(255,255,255,0.7))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>{formatCurrency(ticketVal)}</div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>Por contrato</div>
+            </div>
+          </div>
+          {/* Ranking completo */}
+          <h2 style={{ fontSize: 20, fontWeight: 900, marginBottom: 16 }}>🏆 Ranking Completo</h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {ranking.map((s, i) => (
+              <TvCard key={s.Nome} seller={s} pos={i + 1} />
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // Renderiza o painel de TV
+    ReactDOM.createRoot(document.getElementById('tv-root')).render(<TvDashboard />);
+  </script>
+</body>
+</html>
