@@ -179,47 +179,93 @@ function LeCardDashboard() {
     })();
   }, []);
 
-  // SSE listener — receives ALL changes from Firebase (including our own)
+  // SSE listener — Firebase sends 'put' and 'patch' events, NOT 'message'
   useEffect(() => {
     let es;
     let reconnectTimer;
+    let pollTimer;
+
+    const processRemoteData = (d) => {
+      if (!d || !d.data || !d.data.rows) return;
+      const meta = d._meta || {};
+      // Skip if this is our own save echoing back
+      if (meta.deviceId === deviceId.current && meta.version <= lastSavedVersion.current) {
+        skipNextSSE.current = false;
+        return;
+      }
+      if (skipNextSSE.current) {
+        skipNextSSE.current = false;
+        return;
+      }
+      // This is a REMOTE change — apply it
+      const { _meta, ...clean } = d;
+      if (meta.version) lastSavedVersion.current = meta.version;
+      setSyncStatus('syncing');
+      setState(clean);
+      setTimeout(() => setSyncStatus('connected'), 800);
+    };
+
     const connect = () => {
       try {
         es = new EventSource(`${FIREBASE_DB_URL}/state.json`);
-        es.onmessage = (e) => {
+
+        // Firebase SSE sends 'put' events with { path, data } format
+        es.addEventListener('put', (e) => {
           try {
-            const d = JSON.parse(e.data);
-            if (!d || !d.data || !d.data.rows) return;
-
-            const meta = d._meta || {};
-            // Skip if this is our own save echoing back
-            if (meta.deviceId === deviceId.current && meta.version <= lastSavedVersion.current) {
-              skipNextSSE.current = false;
-              return;
+            const parsed = JSON.parse(e.data);
+            // When path is "/", data is the full state object
+            if (parsed.path === '/') {
+              processRemoteData(parsed.data);
             }
-            if (skipNextSSE.current) {
-              skipNextSSE.current = false;
-              return;
-            }
-
-            // This is a REMOTE change — apply it
-            const { _meta, ...clean } = d;
-            if (meta.version) lastSavedVersion.current = meta.version;
-            setSyncStatus('syncing');
-            setState(clean);
-            setTimeout(() => setSyncStatus('connected'), 800);
           } catch {}
-        };
+        });
+
+        // Also handle 'patch' events (partial updates)
+        es.addEventListener('patch', (e) => {
+          try {
+            // On patch, do a full refetch to stay in sync
+            fbGet('state').then(data => {
+              if (data) {
+                const { _meta, ...clean } = data;
+                processRemoteData(data);
+              }
+            });
+          } catch {}
+        });
+
         es.onerror = () => {
           setSyncStatus('reconnecting');
-          es.close();
+          if (es) es.close();
           reconnectTimer = setTimeout(connect, 3000);
         };
         es.onopen = () => setSyncStatus('connected');
-      } catch { setSyncStatus('offline'); }
+      } catch { 
+        setSyncStatus('offline');
+        // Fallback: poll every 5 seconds if SSE fails
+        pollTimer = setInterval(async () => {
+          try {
+            const data = await fbGet('state');
+            if (data) processRemoteData(data);
+          } catch {}
+        }, 5000);
+      }
     };
     connect();
-    return () => { if (es) es.close(); clearTimeout(reconnectTimer); };
+
+    // Fallback polling every 4 seconds (catches cases where SSE silently fails)
+    pollTimer = setInterval(async () => {
+      try {
+        const data = await fbGet('state');
+        if (data) processRemoteData(data);
+        if (syncStatus === 'reconnecting' || syncStatus === 'offline') setSyncStatus('connected');
+      } catch {}
+    }, 4000);
+
+    return () => { 
+      if (es) es.close(); 
+      clearTimeout(reconnectTimer); 
+      clearInterval(pollTimer);
+    };
   }, []);
 
   if (loading || !state) return (
@@ -1357,10 +1403,45 @@ function LeCardDashboard() {
           </div>
 
           {/* Sync Status */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24, padding: '8px 12px', borderRadius: 8, background: 'rgba(252,211,77,0.05)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, padding: '8px 12px', borderRadius: 8, background: 'rgba(252,211,77,0.05)' }}>
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: syncColors[syncStatus], boxShadow: `0 0 8px ${syncColors[syncStatus]}`, animation: syncStatus === 'syncing' ? 'pulse 0.5s ease-in-out infinite' : syncStatus === 'reconnecting' ? 'pulse 1s ease-in-out infinite' : 'none' }} />
             <span style={{ fontSize: 12, fontWeight: 600, color: syncColors[syncStatus] }}>{syncLabels[syncStatus]}</span>
           </div>
+          {(syncStatus === 'offline' || syncStatus === 'reconnecting') && (
+            <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', marginBottom: 16, fontSize: 11, color: '#EF4444', lineHeight: 1.5 }}>
+              ⚠️ Sem conexão com Firebase.<br/>
+              Verifique as regras do banco:<br/>
+              <strong>Firebase Console → Realtime Database → Rules</strong><br/>
+              <code style={{ background: 'rgba(0,0,0,0.3)', padding: '2px 4px', borderRadius: 3 }}>
+                {`{".read": true, ".write": true}`}
+              </code>
+              <br/><br/>
+              <button onClick={async () => {
+                setSyncStatus('connecting');
+                try {
+                  const test = await fbGet('state');
+                  if (test !== null) {
+                    setSyncStatus('connected');
+                    showToast('Conexão OK!');
+                    if (test.data?.rows) {
+                      const { _meta, ...clean } = test;
+                      setState(clean);
+                    }
+                  } else {
+                    setSyncStatus('offline');
+                    showToast('Firebase acessível mas sem dados. Salvando...', 'info');
+                    await fbSet('state', { ...state, _meta: { deviceId: deviceId.current, version: Date.now() } });
+                    setSyncStatus('connected');
+                  }
+                } catch(err) {
+                  setSyncStatus('offline');
+                  showToast('Falha: ' + err.message, 'error');
+                }
+              }} style={{ marginTop: 4, padding: '4px 12px', border: 'none', borderRadius: 6, background: '#EF4444', color: 'white', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                🔄 Testar Conexão
+              </button>
+            </div>
+          )}
           <style>{`@keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.3); } }`}</style>
 
           <div style={{ marginBottom: 32 }}>
