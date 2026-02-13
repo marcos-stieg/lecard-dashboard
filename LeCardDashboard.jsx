@@ -60,13 +60,7 @@ const fmtMonth = (s) => { if (!s) return ''; const p = s.split('-'); return p.le
 
 const getToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 const daysDiff = (dateStr) => { if (!dateStr) return 999; const d = new Date(dateStr + 'T00:00:00'); const now = new Date(); now.setHours(0,0,0,0); return Math.floor((now - d) / 86400000); };
-// Determine the thermal status of a vendor.
-// If the vendor has been manually frozen via the `forcedFreeze` flag,
-// always return 'freezing'. Otherwise fall back to last sale date logic.
 const getVendorThermal = (statusObj) => {
-  // Manual freeze overrides last sale logic
-  if (statusObj && statusObj.forcedFreeze) return 'freezing';
-  // Without any sale date, treat as freezing by default
   if (!statusObj || !statusObj.lastSaleDate) return 'freezing';
   const diff = daysDiff(statusObj.lastSaleDate);
   if (diff === 0) return 'fire';
@@ -143,10 +137,6 @@ export default function LeCardDashboard() {
   useEffect(() => {
     if (skipSave.current) { skipSave.current = false; return; }
     if (!state) return;
-    // Avoid overwriting the remote database with an empty vendor list. Only save
-    // when there are vendors present. This helps prevent situations where
-    // toggling edit mode with an empty state wipes all data from Firebase.
-    if ((state?.data?.rows || []).length === 0) return;
     fbSet('state', state).then(() => setSyncStatus('connected')).catch(() => setSyncStatus('offline'));
   }, [state]);
 
@@ -372,18 +362,32 @@ export default function LeCardDashboard() {
     showToast(`🔥 ${seller.Nome} está pegando fogo! Venda registrada hoje!`);
   };
 
-  // Toggle manual freeze status for a vendor. When forced freeze is enabled,
-  // the vendor will always appear as 'Congelando' regardless of last sale date.
-  const toggleFreezeVendor = (index) => {
+  const setNormal = (index) => {
     const seller = rows[index];
-    const currentForced = state.vendorStatus?.[index]?.forcedFreeze || false;
+    if (!seller) return;
+    // Set lastSaleDate to yesterday so it's neither fire (today) nor freezing (2+ days)
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth()+1).padStart(2,'0')}-${String(yesterday.getDate()).padStart(2,'0')}`;
     updateState(s => {
       if (!s.vendorStatus) s.vendorStatus = {};
-      const st = s.vendorStatus[index] || {};
-      st.forcedFreeze = !currentForced;
-      s.vendorStatus[index] = st;
+      s.vendorStatus[index] = { lastSaleDate: yStr };
     });
-    showToast(`${seller?.Nome || 'Vendedor'} ${currentForced ? 'descongelado' : 'congelado'}`, currentForced ? 'success' : 'info');
+    showToast(`✅ ${seller.Nome} voltou ao normal.`);
+  };
+
+  const setFreezing = (index) => {
+    const seller = rows[index];
+    if (!seller) return;
+    // Set lastSaleDate to 3 days ago to trigger freezing (2+ days)
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+    const dStr = `${threeDaysAgo.getFullYear()}-${String(threeDaysAgo.getMonth()+1).padStart(2,'0')}-${String(threeDaysAgo.getDate()).padStart(2,'0')}`;
+    updateState(s => {
+      if (!s.vendorStatus) s.vendorStatus = {};
+      s.vendorStatus[index] = { lastSaleDate: dStr };
+    });
+    showToast(`🥶 ${seller.Nome} está congelando...`);
   };
 
   // ==================== STYLES ====================
@@ -402,6 +406,70 @@ export default function LeCardDashboard() {
   };
 
   const editable = editMode ? { cursor: 'pointer', textDecoration: 'underline', textDecorationColor: colors.yellow } : {};
+
+  // ==================== EDITABLE TEXT SYSTEM ====================
+  const t = (key, fallback) => {
+    return state.customizations?.texts?.[key] || fallback;
+  };
+
+  const saveText = (key, value) => {
+    updateState(s => {
+      if (!s.customizations) s.customizations = { texts: {}, colors: {}, logo: '' };
+      if (!s.customizations.texts) s.customizations.texts = {};
+      s.customizations.texts[key] = value;
+    });
+  };
+
+  const EditableText = ({ k, fallback, tag, style: s = {} }) => {
+    const [editing, setEditing] = useState(false);
+    const [val, setVal] = useState('');
+    const ref = useRef(null);
+
+    const text = t(k, fallback);
+    const Tag = tag || 'span';
+
+    const startEditing = () => {
+      if (!editMode) return;
+      setVal(text);
+      setEditing(true);
+      setTimeout(() => ref.current?.focus(), 30);
+    };
+
+    const save = () => {
+      const trimmed = val.trim();
+      if (trimmed && trimmed !== fallback) {
+        saveText(k, trimmed);
+      } else {
+        // Remove override, revert to default
+        updateState(st => {
+          if (st.customizations?.texts?.[k]) delete st.customizations.texts[k];
+        });
+      }
+      setEditing(false);
+    };
+
+    if (editing) {
+      return (
+        <input ref={ref} value={val} onChange={e => setVal(e.target.value)}
+          onBlur={save} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }}
+          style={{
+            background: 'rgba(252,211,77,0.12)', border: `2px solid ${colors.yellow}`, borderRadius: 8,
+            color: colors.yellow, fontSize: 'inherit', fontWeight: 'inherit', fontFamily: 'inherit',
+            padding: '4px 10px', outline: 'none', width: '100%', boxSizing: 'border-box', ...s
+          }}
+        />
+      );
+    }
+
+    return (
+      <Tag onClick={startEditing} style={{
+        ...s,
+        ...(editMode ? { cursor: 'pointer', outline: '1px dashed rgba(252,211,77,0.4)', outlineOffset: 4, borderRadius: 4, transition: 'outline 0.2s' } : {})
+      }} title={editMode ? `Clique para editar: "${k}"` : undefined}>
+        {text}
+      </Tag>
+    );
+  };
 
   // ==================== RENDER HELPERS ====================
   const Medal = ({ pos }) => pos === 1 ? '🥇' : pos === 2 ? '🥈' : pos === 3 ? '🥉' : '🏅';
@@ -447,8 +515,6 @@ export default function LeCardDashboard() {
     const thermal = getVendorThermal(vendorSt);
     const isFire = thermal === 'fire';
     const isFreeze = thermal === 'freezing';
-    // Manual freeze flag used to toggle freeze/unfreeze
-    const isForced = vendorSt?.forcedFreeze;
     const thermalClass = isFire ? 'fire-item' : isFreeze ? 'freeze-item' : '';
     const lastDate = vendorSt?.lastSaleDate;
     const daysAgo = lastDate ? daysDiff(lastDate) : null;
@@ -486,17 +552,12 @@ export default function LeCardDashboard() {
             {/* Thermal status badge */}
             {isFire && (
               <span className="fire-badge" style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 20, textTransform: 'uppercase', letterSpacing: 1, marginLeft: 4 }}>
-                🔥 Pegando Fogo!
+                🔥 <EditableText k="badge.fire" fallback="Pegando Fogo!" />
               </span>
             )}
             {isFreeze && (
               <span className="freeze-badge" style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 20, textTransform: 'uppercase', letterSpacing: 1, marginLeft: 4 }}>
-                🥶 Congelando
-              </span>
-            )}
-            {editMode && (
-              <span onClick={(e) => { e.stopPropagation(); toggleFreezeVendor(origIndex); }} style={{ marginLeft: 6, cursor: 'pointer', fontSize: 14, color: colors.yellow }} title={isForced ? 'Descongelar' : 'Congelar'}>
-                {isForced ? '🧊' : '❄️'}
+                🥶 <EditableText k="badge.freeze" fallback="Congelando" />
               </span>
             )}
             <span onClick={(e) => { e.stopPropagation(); editVendorMonthlyKPIs(origIndex); }} style={{ marginLeft: 6, cursor: 'pointer', fontSize: 14, color: colors.yellow }} title="Editar KPIs mensais">📅</span>
@@ -505,30 +566,51 @@ export default function LeCardDashboard() {
           <div style={{ fontSize: 12, color: colors.yellow, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
             <LevelBadge level={level} />
             <span style={editable} onClick={() => editSeller(origIndex, 'Badges')}>{seller.Badges || 0} badges</span>
-            {daysAgo !== null && <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>• {daysAgo === 0 ? 'Vendeu hoje' : daysAgo === 1 ? '1 dia sem venda' : `${daysAgo} dias sem venda`}</span>}
+            {daysAgo !== null && <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>• {daysAgo === 0 ? t('rank.vendeuHoje','Vendeu hoje') : daysAgo === 1 ? `1 ${t('rank.diaSemVenda','dia sem venda')}` : `${daysAgo} ${t('rank.diasSemVenda','dias sem venda')}`}</span>}
           </div>
-          {/* Register sale button */}
-          <button onClick={(e) => { e.stopPropagation(); registerSale(origIndex); }} style={{
-            marginTop: 6, padding: '3px 10px', border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-            background: isFire ? 'rgba(255,100,0,0.2)' : 'rgba(252,211,77,0.15)',
-            color: isFire ? '#ff8800' : colors.yellow,
-            transition: 'all 0.2s'
-          }} title="Marcar que vendeu hoje">
-            🎯 Registrar Venda Hoje
-          </button>
+          {/* Status buttons */}
+          <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button onClick={(e) => { e.stopPropagation(); registerSale(origIndex); }} style={{
+              padding: '3px 10px', border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              background: isFire ? 'rgba(255,100,0,0.3)' : 'rgba(255,100,0,0.1)',
+              color: isFire ? '#ffaa00' : '#ff8800',
+              outline: isFire ? '2px solid #ff6600' : 'none',
+              transition: 'all 0.2s'
+            }} title="Vendeu hoje">
+              🔥 <EditableText k="status.fire" fallback="Pegando Fogo" />
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); setNormal(origIndex); }} style={{
+              padding: '3px 10px', border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              background: (!isFire && !isFreeze) ? 'rgba(16,185,129,0.3)' : 'rgba(16,185,129,0.1)',
+              color: (!isFire && !isFreeze) ? '#34d399' : '#10B981',
+              outline: (!isFire && !isFreeze) ? '2px solid #10B981' : 'none',
+              transition: 'all 0.2s'
+            }} title="Definir como normal">
+              ✅ <EditableText k="status.normal" fallback="Normal" />
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); setFreezing(origIndex); }} style={{
+              padding: '3px 10px', border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              background: isFreeze ? 'rgba(0,191,255,0.3)' : 'rgba(0,191,255,0.1)',
+              color: isFreeze ? '#80dfff' : '#00bfff',
+              outline: isFreeze ? '2px solid #00bfff' : 'none',
+              transition: 'all 0.2s'
+            }} title="Marcar como congelando">
+              🥶 <EditableText k="status.freeze" fallback="Congelando" />
+            </button>
+          </div>
         </div>
 
         <div style={{ textAlign: 'center', position: 'relative', zIndex: 1 }}>
           <div style={{ fontSize: 20, fontWeight: 800, color: isFire ? '#ff8800' : isFreeze ? '#80dfff' : colors.yellow, ...editable }} onClick={() => editSeller(origIndex, 'Contratos')}>{seller.Contratos}</div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' }}>Contratos</div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' }}>{t('rank.lbl.contratos','Contratos')}</div>
         </div>
         <div style={{ textAlign: 'center', position: 'relative', zIndex: 1 }}>
           <div style={{ fontSize: 20, fontWeight: 800, color: isFire ? '#ff8800' : isFreeze ? '#80dfff' : colors.yellow, ...editable }} onClick={() => editSeller(origIndex, 'Faturamento')}>{formatCurrency(seller.Faturamento)}</div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' }}>Faturamento</div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' }}>{t('rank.lbl.faturamento','Faturamento')}</div>
         </div>
         <div style={{ textAlign: 'center', position: 'relative', zIndex: 1 }}>
           <div style={{ fontSize: 20, fontWeight: 800, color: isFire ? '#ff8800' : isFreeze ? '#80dfff' : colors.yellow, ...editable }} onClick={() => editSeller(origIndex, 'Cartoes')}>{seller.Cartoes}</div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' }}>Cartões</div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' }}>{t('rank.lbl.cartoes','Cartões')}</div>
         </div>
         <div style={{ fontSize: 40, textAlign: 'center', position: 'relative', zIndex: 1 }}>
           {isFire ? <span className="fire-emoji" style={{ fontSize: 40 }}>🔥</span> : isFreeze ? <span className="freeze-emoji" style={{ fontSize: 40 }}>🥶</span> : <Medal pos={position} />}
@@ -546,8 +628,8 @@ export default function LeCardDashboard() {
     return (
     <>
       <div style={{ marginBottom: 32 }}>
-        <h1 style={{ fontSize: 36, fontWeight: 900, marginBottom: 8, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Dashboard Real-Time</h1>
-        <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)' }}>Acompanhe o desempenho da equipe em tempo real</p>
+        <h1 style={{ fontSize: 36, fontWeight: 900, marginBottom: 8, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}><EditableText k="dash.title" fallback="Dashboard Real-Time" /></h1>
+        <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)' }}><EditableText k="dash.subtitle" fallback="Acompanhe o desempenho da equipe em tempo real" /></p>
       </div>
 
       {/* Thermal Status Summary */}
@@ -556,21 +638,21 @@ export default function LeCardDashboard() {
           <span style={{ fontSize: 32 }}>🔥</span>
           <div>
             <div style={{ fontSize: 24, fontWeight: 900, color: '#ff8800' }}>{fireCount}</div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 1 }}>Pegando Fogo</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 1 }}><EditableText k="dash.fire" fallback="Pegando Fogo" /></div>
           </div>
         </div>
         <div style={{ padding: '16px 20px', borderRadius: 16, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 32 }}>✅</span>
           <div>
             <div style={{ fontSize: 24, fontWeight: 900, color: '#10B981' }}>{normalCount}</div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 1 }}>Normal</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 1 }}><EditableText k="dash.normal" fallback="Normal" /></div>
           </div>
         </div>
         <div style={{ padding: '16px 20px', borderRadius: 16, background: 'linear-gradient(135deg, rgba(0,128,255,0.12), rgba(0,191,255,0.06))', border: '1px solid rgba(0,191,255,0.3)', display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 32 }}>🥶</span>
           <div>
             <div style={{ fontSize: 24, fontWeight: 900, color: '#00bfff' }}>{freezeCount}</div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 1 }}>Congelando</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: 1 }}><EditableText k="dash.freeze" fallback="Congelando" /></div>
           </div>
         </div>
       </div>
@@ -581,10 +663,10 @@ export default function LeCardDashboard() {
             <div style={{ width: 48, height: 48, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>💰</div>
             <span style={{ padding: '6px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700, background: 'rgba(16,185,129,0.2)', color: colors.success }}>↑ {achRevenue}%</span>
           </div>
-          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}>Faturamento Total</div>
+          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}><EditableText k="dash.lbl.revenue" fallback="Faturamento Total" /></div>
           <div onClick={() => editCardValue('revenue')} style={{ fontSize: 42, fontWeight: 900, lineHeight: 1, marginBottom: 12, background: 'linear-gradient(135deg, white, rgba(255,255,255,0.8))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', ...editable }}>{formatCurrency(revenueVal)}</div>
-          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>Meta: {formatCurrency(sectorGoals.revenue)}</div>
-          <ProgressBar pct={parseFloat(achRevenue)} label1={`${achRevenue}% da meta`} label2={`${formatCurrency(sectorGoals.revenue - totals.revenue)} restante`} />
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}><EditableText k="dash.meta.prefix" fallback="Meta:" /> {formatCurrency(sectorGoals.revenue)}</div>
+          <ProgressBar pct={parseFloat(achRevenue)} label1={`${achRevenue}% ${t('dash.pct.meta','da meta')}`} label2={`${formatCurrency(sectorGoals.revenue - totals.revenue)} ${t('dash.restante','restante')}`} />
         </div>
         <div style={cardStyle}>
           <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 4, background: `linear-gradient(90deg, ${colors.yellow}, ${colors.gold})` }} />
@@ -592,17 +674,17 @@ export default function LeCardDashboard() {
             <div style={{ width: 48, height: 48, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>📝</div>
             <span style={{ padding: '6px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700, background: 'rgba(16,185,129,0.2)', color: colors.success }}>↑ {achContracts}%</span>
           </div>
-          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}>Contratos Fechados</div>
+          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}><EditableText k="dash.lbl.contracts" fallback="Contratos Fechados" /></div>
           <div onClick={() => editCardValue('contracts')} style={{ fontSize: 42, fontWeight: 900, lineHeight: 1, marginBottom: 12, background: 'linear-gradient(135deg, white, rgba(255,255,255,0.8))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', ...editable }}>{formatNumber(contractsVal)}</div>
-          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>Meta: {sectorGoals.contracts} contratos</div>
-          <ProgressBar pct={parseFloat(achContracts)} label1={`${achContracts}% da meta`} label2={`${sectorGoals.contracts - totals.contracts} faltam`} />
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}><EditableText k="dash.meta.prefix" fallback="Meta:" /> {sectorGoals.contracts} <EditableText k="dash.lbl.contratosUnit" fallback="contratos" /></div>
+          <ProgressBar pct={parseFloat(achContracts)} label1={`${achContracts}% ${t('dash.pct.meta','da meta')}`} label2={`${sectorGoals.contracts - totals.contracts} ${t('dash.faltam','faltam')}`} />
         </div>
-        <StatCard icon="💳" label="Cartões Emitidos" value={formatNumber(cardsVal)} subtitle={`Meta: ${formatNumber(sectorGoals.cards)} cartões`} onClick={() => editCardValue('cards')} />
-        <StatCard icon="🎯" label="Ticket Médio" value={formatCurrency(ticketVal)} subtitle="Por contrato fechado" onClick={() => editCardValue('ticketMedio')} />
+        <StatCard icon="💳" label={<EditableText k="dash.lbl.cards" fallback="Cartões Emitidos" />} value={formatNumber(cardsVal)} subtitle={<><EditableText k="dash.meta.prefix" fallback="Meta:" /> {formatNumber(sectorGoals.cards)} <EditableText k="dash.lbl.cartoesUnit" fallback="cartões" /></>} onClick={() => editCardValue('cards')} />
+        <StatCard icon="🎯" label={<EditableText k="dash.lbl.ticket" fallback="Ticket Médio" />} value={formatCurrency(ticketVal)} subtitle={<EditableText k="dash.ticket.sub" fallback="Por contrato fechado" />} onClick={() => editCardValue('ticketMedio')} />
       </div>
       <div style={{ ...cardStyle, borderRadius: 24, padding: 32, marginBottom: 32 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32, paddingBottom: 20, borderBottom: `2px solid rgba(252,211,77,0.2)` }}>
-          <h2 style={{ fontSize: 28, fontWeight: 900, display: 'flex', alignItems: 'center', gap: 12 }}>🏆 Ranking LeCard</h2>
+          <h2 style={{ fontSize: 28, fontWeight: 900, display: 'flex', alignItems: 'center', gap: 12 }}>🏆 <EditableText k="dash.ranking.title" fallback="Ranking LeCard" /></h2>
         </div>
         {ranking.slice(0, 10).map((seller, idx) => {
           const origIndex = rows.findIndex(r => r === seller);
@@ -616,31 +698,31 @@ export default function LeCardDashboard() {
   const ProjectionsPage = () => (
     <>
       <div style={{ marginBottom: 32 }}>
-        <h1 style={{ fontSize: 36, fontWeight: 900, marginBottom: 8, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Projeções 2026</h1>
-        <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)' }}>Análise de projeção e metas do ano</p>
+        <h1 style={{ fontSize: 36, fontWeight: 900, marginBottom: 8, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}><EditableText k="proj.title" fallback="Projeções 2026" /></h1>
+        <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)' }}><EditableText k="proj.subtitle" fallback="Análise de projeção e metas do ano" /></p>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24, marginBottom: 32 }}>
-        <StatCard icon="🎯" label="Meta 2026" value={formatCurrency(goals.meta2026)} subtitle="Objetivo anual" onClick={() => editGoal('goals.meta2026')} />
-        <StatCard icon="📊" label="Base 2025" value={formatCurrency(goals.base2025)} subtitle="Contratos vindos de 2025" onClick={() => editGoal('goals.base2025')} />
-        <StatCard icon="📈" label="Projeção Total" value={formatCurrency(projections.projecaoTotal)} subtitle="Internos + Externos" onClick={() => editGoal('projections.projecaoTotal')} />
-        <StatCard icon="⚠️" label="Gap para Meta" value={formatCurrency(goals.gap)} subtitle="Diferença a ser coberta" onClick={() => editGoal('goals.gap')} />
+        <StatCard icon="🎯" label={<EditableText k="proj.lbl.meta" fallback="Meta 2026" />} value={formatCurrency(goals.meta2026)} subtitle={<EditableText k="proj.sub.meta" fallback="Objetivo anual" />} onClick={() => editGoal('goals.meta2026')} />
+        <StatCard icon="📊" label={<EditableText k="proj.lbl.base" fallback="Base 2025" />} value={formatCurrency(goals.base2025)} subtitle={<EditableText k="proj.sub.base" fallback="Contratos vindos de 2025" />} onClick={() => editGoal('goals.base2025')} />
+        <StatCard icon="📈" label={<EditableText k="proj.lbl.total" fallback="Projeção Total" />} value={formatCurrency(projections.projecaoTotal)} subtitle={<EditableText k="proj.sub.total" fallback="Internos + Externos" />} onClick={() => editGoal('projections.projecaoTotal')} />
+        <StatCard icon="⚠️" label={<EditableText k="proj.lbl.gap" fallback="Gap para Meta" />} value={formatCurrency(goals.gap)} subtitle={<EditableText k="proj.sub.gap" fallback="Diferença a ser coberta" />} onClick={() => editGoal('goals.gap')} />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24 }}>
         <div style={cardStyle}>
           <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 4, background: `linear-gradient(90deg, ${colors.yellow}, ${colors.gold})` }} />
           <div style={{ width: 48, height: 48, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, marginBottom: 16 }}>👥</div>
-          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}>Vendedores Internos</div>
+          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}><EditableText k="proj.lbl.internos" fallback="Vendedores Internos" /></div>
           <div onClick={() => editGoal('goals.vendedoresInternos')} style={{ fontSize: 42, fontWeight: 900, marginBottom: 12, background: 'linear-gradient(135deg, white, rgba(255,255,255,0.8))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', ...editable }}>{goals.vendedoresInternos}</div>
-          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>Meta mensal: <span style={editable} onClick={() => editGoal('goals.metaMensalInterno')}>{formatCurrency(goals.metaMensalInterno)}</span></div>
-          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', marginTop: 8 }}>Projeção anual: <span style={editable} onClick={() => editGoal('projections.internosTotal')}>{formatCurrency(projections.internosTotal)}</span></div>
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}><EditableText k="proj.metaMensal" fallback="Meta mensal:" /> <span style={editable} onClick={() => editGoal('goals.metaMensalInterno')}>{formatCurrency(goals.metaMensalInterno)}</span></div>
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', marginTop: 8 }}><EditableText k="proj.projAnual" fallback="Projeção anual:" /> <span style={editable} onClick={() => editGoal('projections.internosTotal')}>{formatCurrency(projections.internosTotal)}</span></div>
         </div>
         <div style={cardStyle}>
           <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 4, background: `linear-gradient(90deg, ${colors.yellow}, ${colors.gold})` }} />
           <div style={{ width: 48, height: 48, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, marginBottom: 16 }}>👥</div>
-          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}>Vendedores Externos</div>
+          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}><EditableText k="proj.lbl.externos" fallback="Vendedores Externos" /></div>
           <div onClick={() => editGoal('goals.vendedoresExternos')} style={{ fontSize: 42, fontWeight: 900, marginBottom: 12, background: 'linear-gradient(135deg, white, rgba(255,255,255,0.8))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', ...editable }}>{goals.vendedoresExternos}</div>
-          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>Meta mensal: <span style={editable} onClick={() => editGoal('goals.metaMensalExterno')}>{formatCurrency(goals.metaMensalExterno)}</span></div>
-          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', marginTop: 8 }}>Projeção anual: <span style={editable} onClick={() => editGoal('projections.externosTotal')}>{formatCurrency(projections.externosTotal)}</span></div>
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}><EditableText k="proj.metaMensal" fallback="Meta mensal:" /> <span style={editable} onClick={() => editGoal('goals.metaMensalExterno')}>{formatCurrency(goals.metaMensalExterno)}</span></div>
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', marginTop: 8 }}><EditableText k="proj.projAnual" fallback="Projeção anual:" /> <span style={editable} onClick={() => editGoal('projections.externosTotal')}>{formatCurrency(projections.externosTotal)}</span></div>
         </div>
       </div>
     </>
@@ -649,24 +731,24 @@ export default function LeCardDashboard() {
   const ArenaPage = () => (
     <>
       <div style={{ marginBottom: 32 }}>
-        <h1 style={{ fontSize: 36, fontWeight: 900, marginBottom: 8, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Arena Competitiva</h1>
-        <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)' }}>Conquistas, badges e competições</p>
+        <h1 style={{ fontSize: 36, fontWeight: 900, marginBottom: 8, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}><EditableText k="arena.title" fallback="Arena Competitiva" /></h1>
+        <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)' }}><EditableText k="arena.subtitle" fallback="Conquistas, badges e competições" /></p>
       </div>
       <div style={{ ...cardStyle, borderRadius: 24, padding: 32, marginBottom: 32 }}>
-        <h2 style={{ fontSize: 28, fontWeight: 900, marginBottom: 24, paddingBottom: 20, borderBottom: '2px solid rgba(252,211,77,0.2)' }}>🏆 Leaderboard Completo</h2>
+        <h2 style={{ fontSize: 28, fontWeight: 900, marginBottom: 24, paddingBottom: 20, borderBottom: '2px solid rgba(252,211,77,0.2)' }}>🏆 <EditableText k="arena.leaderboard" fallback="Leaderboard Completo" /></h2>
         {ranking.map((seller, idx) => {
           const origIndex = rows.findIndex(r => r === seller);
           return <RankingItem key={origIndex} seller={seller} position={idx + 1} origIndex={origIndex} />;
         })}
       </div>
       <div style={{ ...cardStyle, borderRadius: 24, padding: 32 }}>
-        <h3 style={{ fontSize: 24, fontWeight: 900, marginBottom: 24 }}>🎖️ Conquistas Disponíveis</h3>
+        <h3 style={{ fontSize: 24, fontWeight: 900, marginBottom: 24 }}>🎖️ <EditableText k="arena.conquistas" fallback="Conquistas Disponíveis" /></h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 16 }}>
           {achievements.map((a, i) => (
             <div key={i} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: 20, textAlign: 'center', opacity: a.locked ? 0.4 : 1, filter: a.locked ? 'grayscale(1)' : 'none', transition: 'all 0.3s' }}>
               <div style={{ fontSize: 48, marginBottom: 12 }}>{a.icon}</div>
-              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{a.name}</div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>{a.desc}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}><EditableText k={`ach.${i}.name`} fallback={a.name} /></div>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}><EditableText k={`ach.${i}.desc`} fallback={a.desc} /></div>
             </div>
           ))}
         </div>
@@ -679,15 +761,18 @@ export default function LeCardDashboard() {
     return (
       <>
         <div style={{ marginBottom: 32 }}>
-          <h1 style={{ fontSize: 36, fontWeight: 900, marginBottom: 8, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>KPIs Mensais</h1>
-          <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)' }}>Registre e acompanhe os KPIs de cada mês</p>
+          <h1 style={{ fontSize: 36, fontWeight: 900, marginBottom: 8, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}><EditableText k="kpi.title" fallback="KPIs Mensais" /></h1>
+          <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)' }}><EditableText k="kpi.subtitle" fallback="Registre e acompanhe os KPIs de cada mês" /></p>
         </div>
         <div style={{ ...cardStyle, borderRadius: 24, padding: 32, overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                {['Mês', 'Faturamento', 'Contratos', 'Cartões', 'Ticket Médio'].map(h => (
-                  <th key={h} style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.1)', textAlign: 'left', fontSize: 14, fontWeight: 600, textTransform: 'uppercase', background: 'rgba(255,255,255,0.1)', color: 'white' }}>{h}</th>
+                {[
+                  { k: 'kpi.col.mes', f: 'Mês' }, { k: 'kpi.col.fat', f: 'Faturamento' },
+                  { k: 'kpi.col.contr', f: 'Contratos' }, { k: 'kpi.col.cart', f: 'Cartões' }, { k: 'kpi.col.ticket', f: 'Ticket Médio' }
+                ].map(h => (
+                  <th key={h.k} style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.1)', textAlign: 'left', fontSize: 14, fontWeight: 600, textTransform: 'uppercase', background: 'rgba(255,255,255,0.1)', color: 'white' }}><EditableText k={h.k} fallback={h.f} /></th>
                 ))}
               </tr>
             </thead>
@@ -708,7 +793,357 @@ export default function LeCardDashboard() {
             </tbody>
           </table>
         </div>
-        <button onClick={addMonth} style={{ marginTop: 16, padding: '10px 20px', border: 'none', borderRadius: 12, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, color: colors.darker, fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>➕ Adicionar Mês</button>
+        <button onClick={addMonth} style={{ marginTop: 16, padding: '10px 20px', border: 'none', borderRadius: 12, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, color: colors.darker, fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>➕ <EditableText k="kpi.btn.addMes" fallback="Adicionar Mês" /></button>
+      </>
+    );
+  };
+
+  // ==================== SPREADSHEET PAGE ====================
+  const SpreadsheetPage = () => {
+    const [editCell, setEditCell] = useState(null); // { row, col }
+    const [cellValue, setCellValue] = useState('');
+    const cellRef = useRef(null);
+
+    const columns = [
+      { key: 'Nome', label: 'Nome', type: 'text', width: 160 },
+      { key: 'Contratos', label: 'Contratos', type: 'number', width: 110 },
+      { key: 'Faturamento', label: 'Faturamento (R$)', type: 'number', width: 160 },
+      { key: 'Cartoes', label: 'Cartões', type: 'number', width: 110 },
+      { key: 'Badges', label: 'Badges', type: 'number', width: 100 },
+      { key: '_nivel', label: 'Nível', type: 'computed', width: 120 },
+      { key: '_ticketMedio', label: 'Ticket Médio', type: 'computed', width: 140 },
+      { key: '_status', label: 'Status', type: 'status', width: 130 }
+    ];
+
+    const months = Object.keys(state.monthlyKPIs || {}).sort();
+    const monthCols = [];
+    months.forEach(m => {
+      monthCols.push({ key: `_m_${m}_revenue`, label: `${fmtMonth(m)} Fat.`, type: 'monthKPI', month: m, field: 'revenue', width: 140 });
+      monthCols.push({ key: `_m_${m}_contracts`, label: `${fmtMonth(m)} Contr.`, type: 'monthKPI', month: m, field: 'contracts', width: 130 });
+      monthCols.push({ key: `_m_${m}_cards`, label: `${fmtMonth(m)} Cart.`, type: 'monthKPI', month: m, field: 'cards', width: 130 });
+    });
+
+    const allCols = [...columns, ...monthCols];
+
+    const getCellValue = (rowIdx, col) => {
+      const vendor = rows[rowIdx];
+      if (!vendor) return '';
+      if (col.key === '_nivel') {
+        const pct = ((vendor.Faturamento / 297000) * 100);
+        return getLevel(pct);
+      }
+      if (col.key === '_ticketMedio') {
+        return vendor.Contratos ? formatCurrency(vendor.Faturamento / vendor.Contratos) : 'R$ 0';
+      }
+      if (col.key === '_status') {
+        const thermal = getVendorThermal((state.vendorStatus || {})[rowIdx]);
+        return thermal;
+      }
+      if (col.type === 'monthKPI') {
+        const vkpi = (state.vendorMonthlyKPIs || {})[rowIdx];
+        const mData = vkpi?.[col.month] || {};
+        return mData[col.field] || 0;
+      }
+      return vendor[col.key] ?? '';
+    };
+
+    const getRawValue = (rowIdx, col) => {
+      const vendor = rows[rowIdx];
+      if (!vendor) return '';
+      if (col.type === 'monthKPI') {
+        const vkpi = (state.vendorMonthlyKPIs || {})[rowIdx];
+        const mData = vkpi?.[col.month] || {};
+        return mData[col.field] || 0;
+      }
+      return vendor[col.key] ?? '';
+    };
+
+    const formatDisplay = (val, col) => {
+      if (col.key === '_nivel') return val;
+      if (col.key === '_ticketMedio') return val;
+      if (col.key === '_status') {
+        if (val === 'fire') return `🔥 ${t('badge.fire','Pegando Fogo!')}`;
+        if (val === 'freezing') return `🥶 ${t('badge.freeze','Congelando')}`;
+        return `✅ ${t('status.normal','Normal')}`;
+      }
+      if (col.key === 'Faturamento' || (col.type === 'monthKPI' && col.field === 'revenue')) return formatCurrency(val);
+      if (col.type === 'number' || col.type === 'monthKPI') return formatNumber(val);
+      return val;
+    };
+
+    const startEdit = (row, colIdx) => {
+      const col = allCols[colIdx];
+      if (col.type === 'computed') return; // Can't edit computed
+      if (col.key === '_status') return; // Status has buttons
+      setEditCell({ row, col: colIdx });
+      setCellValue(String(getRawValue(row, col)));
+      setTimeout(() => cellRef.current?.focus(), 30);
+    };
+
+    const saveCell = () => {
+      if (!editCell) return;
+      const { row, col: colIdx } = editCell;
+      const col = allCols[colIdx];
+
+      if (col.type === 'monthKPI') {
+        const newVal = toNumber(cellValue);
+        updateState(s => {
+          if (!s.vendorMonthlyKPIs) s.vendorMonthlyKPIs = {};
+          if (!s.vendorMonthlyKPIs[row]) s.vendorMonthlyKPIs[row] = {};
+          if (!s.vendorMonthlyKPIs[row][col.month]) s.vendorMonthlyKPIs[row][col.month] = { revenue: 0, contracts: 0, cards: 0 };
+          s.vendorMonthlyKPIs[row][col.month][col.field] = newVal;
+          // Recalc monthly totals
+          const computed = {};
+          if (s.vendorMonthlyKPIs) {
+            Object.values(s.vendorMonthlyKPIs).forEach(vd => {
+              Object.entries(vd || {}).forEach(([m, d]) => {
+                if (!computed[m]) computed[m] = { revenue: 0, contracts: 0, cards: 0 };
+                computed[m].revenue += parseFloat(d?.revenue) || 0;
+                computed[m].contracts += parseFloat(d?.contracts) || 0;
+                computed[m].cards += parseFloat(d?.cards) || 0;
+              });
+            });
+          }
+          const allMonths = new Set([...Object.keys(computed), ...Object.keys(s.monthlyKPIs || {})]);
+          const updated = {};
+          allMonths.forEach(m => {
+            const me = s.monthlyKPIs?.[m] || { revenue: 0, contracts: 0, cards: 0, manual: {} };
+            const manual = me.manual || {};
+            const comp = computed[m] || { revenue: 0, contracts: 0, cards: 0 };
+            updated[m] = { revenue: manual.revenue ? me.revenue : comp.revenue, contracts: manual.contracts ? me.contracts : comp.contracts, cards: manual.cards ? me.cards : comp.cards, manual };
+          });
+          s.monthlyKPIs = updated;
+        });
+      } else {
+        const newVal = col.type === 'number' ? toNumber(cellValue) : cellValue.trim();
+        updateState(s => {
+          const oldContratos = parseFloat(s.data.rows[row].Contratos) || 0;
+          s.data.rows[row][col.key] = newVal;
+          // Auto-fire when contracts increase
+          if (col.key === 'Contratos' && newVal > oldContratos) {
+            if (!s.vendorStatus) s.vendorStatus = {};
+            s.vendorStatus[row] = { lastSaleDate: getToday() };
+          }
+        });
+      }
+      setEditCell(null);
+    };
+
+    const handleKey = (e) => {
+      if (e.key === 'Enter') { saveCell(); }
+      else if (e.key === 'Escape') { setEditCell(null); }
+      else if (e.key === 'Tab') {
+        e.preventDefault();
+        saveCell();
+        // Move to next editable cell
+        if (editCell) {
+          let nextCol = editCell.col + 1;
+          let nextRow = editCell.row;
+          while (nextCol < allCols.length || nextRow < rows.length - 1) {
+            if (nextCol >= allCols.length) { nextCol = 0; nextRow++; }
+            if (nextRow >= rows.length) break;
+            const c = allCols[nextCol];
+            if (c.type !== 'computed' && c.key !== '_status') {
+              setTimeout(() => startEdit(nextRow, nextCol), 50);
+              return;
+            }
+            nextCol++;
+          }
+        }
+      }
+    };
+
+    const thStyle = {
+      padding: '10px 14px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1,
+      color: colors.darker, textAlign: 'left', whiteSpace: 'nowrap', position: 'sticky', top: 0, zIndex: 2,
+      background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`,
+      borderBottom: `2px solid ${colors.gold}`, userSelect: 'none'
+    };
+
+    const tdStyle = (rowIdx, colIdx) => {
+      const isEditing = editCell?.row === rowIdx && editCell?.col === colIdx;
+      const col = allCols[colIdx];
+      const isComputed = col.type === 'computed';
+      const isStatus = col.key === '_status';
+      return {
+        padding: isEditing ? '0' : '8px 14px',
+        fontSize: 14, fontWeight: 600,
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        borderRight: '1px solid rgba(255,255,255,0.04)',
+        background: isEditing ? 'rgba(252,211,77,0.15)' : rowIdx % 2 === 0 ? 'rgba(31,41,55,0.8)' : 'rgba(17,24,39,0.8)',
+        cursor: isComputed || isStatus ? 'default' : 'cell',
+        color: isComputed ? 'rgba(255,255,255,0.5)' : 'white',
+        whiteSpace: 'nowrap', transition: 'background 0.15s',
+        textAlign: col.type === 'number' || col.type === 'monthKPI' || col.key === '_ticketMedio' ? 'right' : 'left',
+        minWidth: col.width || 100
+      };
+    };
+
+    const inputStyle = {
+      width: '100%', height: '100%', padding: '8px 14px', border: `2px solid ${colors.yellow}`,
+      borderRadius: 0, background: 'rgba(252,211,77,0.1)', color: colors.yellow,
+      fontSize: 14, fontWeight: 700, fontFamily: 'inherit', outline: 'none',
+      boxSizing: 'border-box'
+    };
+
+    const statusBg = (thermal) => {
+      if (thermal === 'fire') return { bg: 'rgba(255,100,0,0.2)', color: '#ff8800', border: '#ff6600' };
+      if (thermal === 'freezing') return { bg: 'rgba(0,191,255,0.2)', color: '#00bfff', border: '#00bfff' };
+      return { bg: 'rgba(16,185,129,0.15)', color: '#10B981', border: '#10B981' };
+    };
+
+    return (
+      <>
+        <div style={{ marginBottom: 24 }}>
+          <h1 style={{ fontSize: 36, fontWeight: 900, marginBottom: 8, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>📋 <EditableText k="sheet.title" fallback="Planilha de Dados" /></h1>
+          <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)' }}><EditableText k="sheet.subtitle" fallback="Edite os dados como no Excel — todas as alterações refletem automaticamente no dashboard" /></p>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, background: 'rgba(252,211,77,0.1)', color: colors.yellow, fontWeight: 600 }}>💡 <EditableText k="sheet.hint1" fallback="Clique em qualquer célula para editar" /></span>
+            <span style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, background: 'rgba(252,211,77,0.1)', color: colors.yellow, fontWeight: 600 }}>⏎ <EditableText k="sheet.hint2" fallback="Enter salva • Esc cancela • Tab próxima" /></span>
+          </div>
+        </div>
+
+        {/* Toolbar */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+          <button onClick={addVendor} style={{ padding: '8px 18px', border: 'none', borderRadius: 10, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, color: colors.darker, fontWeight: 700, cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+            ➕ <EditableText k="sheet.btn.novo" fallback="Novo Vendedor" />
+          </button>
+          <button onClick={addMonth} style={{ padding: '8px 18px', border: 'none', borderRadius: 10, background: 'rgba(252,211,77,0.15)', color: colors.yellow, fontWeight: 700, cursor: 'pointer', fontSize: 13, border: `1px solid rgba(252,211,77,0.3)`, display: 'flex', alignItems: 'center', gap: 6 }}>
+            📅 <EditableText k="sheet.btn.mes" fallback="Adicionar Mês" />
+          </button>
+          <div style={{ flex: 1 }} />
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', alignSelf: 'center' }}>{rows.length} vendedores • {allCols.length} colunas</span>
+        </div>
+
+        {/* Table */}
+        <div style={{
+          ...cardStyle, borderRadius: 16, padding: 0, overflow: 'hidden', border: `1px solid rgba(252,211,77,0.15)`
+        }}>
+          <div style={{ overflow: 'auto', maxHeight: '70vh' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: allCols.length * 120 }}>
+              <thead>
+                <tr>
+                  <th style={{ ...thStyle, width: 50, textAlign: 'center', position: 'sticky', left: 0, zIndex: 3 }}>#</th>
+                  {allCols.map((col, ci) => (
+                    <th key={col.key} style={{
+                      ...thStyle,
+                      ...(ci === 0 ? { position: 'sticky', left: 50, zIndex: 3 } : {}),
+                      textAlign: col.type === 'number' || col.type === 'monthKPI' ? 'right' : 'left'
+                    }}>{col.label}</th>
+                  ))}
+                  <th style={{ ...thStyle, width: 70, textAlign: 'center' }}>Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((vendor, ri) => {
+                  const thermal = getVendorThermal((state.vendorStatus || {})[ri]);
+                  const rowBorder = thermal === 'fire' ? 'rgba(255,100,0,0.2)' : thermal === 'freezing' ? 'rgba(0,191,255,0.15)' : 'transparent';
+                  return (
+                    <tr key={ri} style={{ background: rowBorder }}>
+                      {/* Row number */}
+                      <td style={{
+                        padding: '8px 10px', fontSize: 13, fontWeight: 800, color: 'rgba(255,255,255,0.4)',
+                        textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)',
+                        borderRight: '1px solid rgba(255,255,255,0.08)',
+                        background: ri % 2 === 0 ? 'rgba(31,41,55,0.9)' : 'rgba(17,24,39,0.9)',
+                        position: 'sticky', left: 0, zIndex: 1
+                      }}>{ri + 1}</td>
+
+                      {allCols.map((col, ci) => {
+                        const isEditing = editCell?.row === ri && editCell?.col === ci;
+                        const val = getCellValue(ri, col);
+
+                        // Status column with mini buttons
+                        if (col.key === '_status') {
+                          const st = statusBg(val);
+                          return (
+                            <td key={col.key} style={{ ...tdStyle(ri, ci), padding: '4px 8px' }}>
+                              <div style={{ display: 'flex', gap: 4 }}>
+                                <button onClick={() => registerSale(ri)} style={{ padding: '2px 6px', border: val === 'fire' ? '2px solid #ff6600' : '1px solid rgba(255,100,0,0.3)', borderRadius: 6, fontSize: 13, cursor: 'pointer', background: val === 'fire' ? 'rgba(255,100,0,0.3)' : 'rgba(255,100,0,0.08)', color: '#ff8800', lineHeight: 1 }} title="Pegando Fogo">🔥</button>
+                                <button onClick={() => setNormal(ri)} style={{ padding: '2px 6px', border: val === 'normal' ? '2px solid #10B981' : '1px solid rgba(16,185,129,0.3)', borderRadius: 6, fontSize: 13, cursor: 'pointer', background: val === 'normal' ? 'rgba(16,185,129,0.3)' : 'rgba(16,185,129,0.08)', color: '#10B981', lineHeight: 1 }} title="Normal">✅</button>
+                                <button onClick={() => setFreezing(ri)} style={{ padding: '2px 6px', border: val === 'freezing' ? '2px solid #00bfff' : '1px solid rgba(0,191,255,0.3)', borderRadius: 6, fontSize: 13, cursor: 'pointer', background: val === 'freezing' ? 'rgba(0,191,255,0.3)' : 'rgba(0,191,255,0.08)', color: '#00bfff', lineHeight: 1 }} title="Congelando">🥶</button>
+                              </div>
+                            </td>
+                          );
+                        }
+
+                        // Nivel column with colored badge
+                        if (col.key === '_nivel') {
+                          const lc = getLevelClass(val);
+                          const lColor = levelColors[lc] || '#CD7F32';
+                          return (
+                            <td key={col.key} style={tdStyle(ri, ci)}>
+                              <span style={{ padding: '3px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: `${lColor}33`, color: lColor, border: `1px solid ${lColor}` }}>{val}</span>
+                            </td>
+                          );
+                        }
+
+                        return (
+                          <td key={col.key} style={{
+                            ...tdStyle(ri, ci),
+                            ...(ci === 0 ? { position: 'sticky', left: 50, zIndex: 1, background: ri % 2 === 0 ? 'rgba(31,41,55,0.95)' : 'rgba(17,24,39,0.95)' } : {})
+                          }} onDoubleClick={() => startEdit(ri, ci)} onClick={() => { if (col.type !== 'computed') startEdit(ri, ci); }}>
+                            {isEditing ? (
+                              <input ref={cellRef} value={cellValue} onChange={e => setCellValue(e.target.value)}
+                                onBlur={saveCell} onKeyDown={handleKey}
+                                type={col.type === 'number' || col.type === 'monthKPI' ? 'number' : 'text'}
+                                style={{ ...inputStyle, textAlign: col.type === 'number' || col.type === 'monthKPI' ? 'right' : 'left' }} />
+                            ) : (
+                              formatDisplay(val, col)
+                            )}
+                          </td>
+                        );
+                      })}
+
+                      {/* Delete button */}
+                      <td style={{ padding: '8px', borderBottom: '1px solid rgba(255,255,255,0.06)', textAlign: 'center', background: ri % 2 === 0 ? 'rgba(31,41,55,0.8)' : 'rgba(17,24,39,0.8)' }}>
+                        <button onClick={() => deleteVendor(ri)} style={{ padding: '4px 8px', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, fontSize: 13, cursor: 'pointer', background: 'rgba(239,68,68,0.1)', color: '#ef4444', lineHeight: 1 }} title="Excluir vendedor">🗑️</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                {/* Totals row */}
+                <tr style={{ background: 'rgba(252,211,77,0.08)' }}>
+                  <td style={{ padding: '10px', fontSize: 12, fontWeight: 900, textAlign: 'center', borderTop: `2px solid ${colors.yellow}`, color: colors.yellow }}>Σ</td>
+                  {allCols.map((col) => {
+                    let total = '';
+                    if (col.key === 'Nome') total = `${rows.length} vendedores`;
+                    else if (col.key === 'Contratos') total = formatNumber(totals.contracts);
+                    else if (col.key === 'Faturamento') total = formatCurrency(totals.revenue);
+                    else if (col.key === 'Cartoes') total = formatNumber(totals.cards);
+                    else if (col.key === 'Badges') total = formatNumber(rows.reduce((a, r) => a + (r.Badges || 0), 0));
+                    else if (col.key === '_ticketMedio') total = totals.contracts ? formatCurrency(totals.revenue / totals.contracts) : 'R$ 0';
+                    else if (col.type === 'monthKPI') {
+                      let sum = 0;
+                      rows.forEach((_, ri) => {
+                        const vkpi = (state.vendorMonthlyKPIs || {})[ri];
+                        sum += parseFloat(vkpi?.[col.month]?.[col.field]) || 0;
+                      });
+                      total = col.field === 'revenue' ? formatCurrency(sum) : formatNumber(sum);
+                    }
+                    return (
+                      <td key={col.key} style={{
+                        padding: '10px 14px', fontSize: 13, fontWeight: 900, color: colors.yellow,
+                        borderTop: `2px solid ${colors.yellow}`,
+                        textAlign: col.type === 'number' || col.type === 'monthKPI' || col.key === '_ticketMedio' ? 'right' : 'left',
+                        whiteSpace: 'nowrap'
+                      }}>{total}</td>
+                    );
+                  })}
+                  <td style={{ borderTop: `2px solid ${colors.yellow}` }} />
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Legend */}
+        <div style={{ marginTop: 16, display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
+          <span>🟡 <EditableText k="sheet.leg1" fallback="Células editáveis — clique para editar" /></span>
+          <span>⬜ <EditableText k="sheet.leg2" fallback="Células calculadas — atualizam automaticamente" /></span>
+          <span>🔄 <EditableText k="sheet.leg3" fallback="Sincroniza em tempo real via Firebase" /></span>
+        </div>
       </>
     );
   };
@@ -720,16 +1155,16 @@ export default function LeCardDashboard() {
       <div onClick={() => setSettingsOpen(false)} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000 }}>
         <div onClick={e => e.stopPropagation()} style={{ background: `linear-gradient(135deg, ${colors.dark}, ${colors.darker})`, border: '1px solid rgba(252,211,77,0.2)', borderRadius: 24, padding: 40, maxWidth: 500, width: '90%' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32, paddingBottom: 20, borderBottom: '2px solid rgba(252,211,77,0.2)' }}>
-            <h2 style={{ fontSize: 28, fontWeight: 900, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>⚙️ Configurações</h2>
+            <h2 style={{ fontSize: 28, fontWeight: 900, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>⚙️ <EditableText k="settings.title" fallback="Configurações" /></h2>
             <button onClick={() => setSettingsOpen(false)} style={{ width: 40, height: 40, border: 'none', background: colors.error, color: 'white', borderRadius: '50%', cursor: 'pointer', fontSize: 24 }}>×</button>
           </div>
-          <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: 24 }}>Configure as cores e parâmetros do dashboard.</p>
+          <p style={{ color: 'rgba(255,255,255,0.7)', marginBottom: 24 }}><EditableText k="settings.desc" fallback="Configure as cores e parâmetros do dashboard." /></p>
           <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', color: 'white', marginBottom: 8 }}>Cor Primária</label>
+            <label style={{ display: 'block', color: 'white', marginBottom: 8 }}><EditableText k="settings.corPrim" fallback="Cor Primária" /></label>
             <input type="color" id="colorPrimary" defaultValue={colors.yellow} style={{ width: 60, height: 40 }} />
           </div>
           <div style={{ marginBottom: 24 }}>
-            <label style={{ display: 'block', color: 'white', marginBottom: 8 }}>Cor Secundária</label>
+            <label style={{ display: 'block', color: 'white', marginBottom: 8 }}><EditableText k="settings.corSec" fallback="Cor Secundária" /></label>
             <input type="color" id="colorSecondary" defaultValue={colors.gold} style={{ width: 60, height: 40 }} />
           </div>
           <button onClick={() => {
@@ -743,7 +1178,7 @@ export default function LeCardDashboard() {
             });
             setSettingsOpen(false);
             showToast('Configurações salvas!');
-          }} style={{ padding: '12px 24px', borderRadius: 12, border: 'none', fontWeight: 700, cursor: 'pointer', background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, color: colors.darker, fontSize: 14 }}>💾 Salvar</button>
+          }} style={{ padding: '12px 24px', borderRadius: 12, border: 'none', fontWeight: 700, cursor: 'pointer', background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, color: colors.darker, fontSize: 14 }}>💾 <EditableText k="settings.btnSalvar" fallback="Salvar" /></button>
         </div>
       </div>
     );
@@ -751,10 +1186,11 @@ export default function LeCardDashboard() {
 
   // ==================== MAIN LAYOUT ====================
   const navItems = [
-    { id: 'dashboard', icon: '📊', label: 'Dashboard' },
-    { id: 'projections', icon: '📈', label: 'Projeções 2026' },
-    { id: 'arena', icon: '🏆', label: 'Arena' },
-    { id: 'monthlyKPIs', icon: '📅', label: 'KPIs Mensais' }
+    { id: 'dashboard', icon: '📊', label: t('nav.dashboard','Dashboard') },
+    { id: 'spreadsheet', icon: '📋', label: t('nav.planilha','Planilha') },
+    { id: 'projections', icon: '📈', label: t('nav.projecoes','Projeções 2026') },
+    { id: 'arena', icon: '🏆', label: t('nav.arena','Arena') },
+    { id: 'monthlyKPIs', icon: '📅', label: t('nav.kpis','KPIs Mensais') }
   ];
 
   const syncColors = { connected: '#10B981', connecting: '#F59E0B', reconnecting: '#F59E0B', offline: '#EF4444' };
@@ -826,8 +1262,8 @@ export default function LeCardDashboard() {
       {!sidebarHidden && (
         <aside style={{ width: 280, minHeight: '100vh', padding: 24, background: `linear-gradient(180deg, ${colors.dark} 0%, ${colors.darker} 100%)`, borderRight: '1px solid rgba(252,211,77,0.1)', position: 'fixed', left: 0, top: 0, overflowY: 'auto', zIndex: 1000 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 40, paddingBottom: 24, borderBottom: '2px solid rgba(252,211,77,0.2)' }}>
-            <div style={{ width: 50, height: 50, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, fontWeight: 900, color: colors.darker, boxShadow: '0 4px 12px rgba(252,211,77,0.3)' }}>LC</div>
-            <span style={{ fontSize: 24, fontWeight: 900, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>LeCard</span>
+            <div style={{ width: 50, height: 50, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, fontWeight: 900, color: colors.darker, boxShadow: '0 4px 12px rgba(252,211,77,0.3)' }}><EditableText k="brand.logo" fallback="LC" /></div>
+            <span style={{ fontSize: 24, fontWeight: 900, background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}><EditableText k="brand.name" fallback="LeCard" /></span>
           </div>
 
           {/* Sync Status */}
@@ -837,7 +1273,7 @@ export default function LeCardDashboard() {
           </div>
 
           <div style={{ marginBottom: 32 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'rgba(255,255,255,0.5)', marginBottom: 12, paddingLeft: 12 }}>Menu Principal</div>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'rgba(255,255,255,0.5)', marginBottom: 12, paddingLeft: 12 }}><EditableText k="nav.section.main" fallback="Menu Principal" /></div>
             {navItems.map(n => (
               <div key={n.id} onClick={() => setPage(n.id)} style={{
                 padding: '14px 16px', borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4, transition: 'all 0.3s',
@@ -845,27 +1281,27 @@ export default function LeCardDashboard() {
                   ? { background: `linear-gradient(135deg, ${colors.yellow}, ${colors.gold})`, color: colors.darker, fontWeight: 700, boxShadow: '0 4px 12px rgba(252,211,77,0.4)' }
                   : { color: 'rgba(255,255,255,0.7)' })
               }}>
-                <span style={{ fontSize: 20 }}>{n.icon}</span><span>{n.label}</span>
+                <span style={{ fontSize: 20 }}>{n.icon}</span><span><EditableText k={`nav.${n.id}`} fallback={n.label} /></span>
               </div>
             ))}
           </div>
 
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'rgba(255,255,255,0.5)', marginBottom: 12, paddingLeft: 12 }}>Ferramentas</div>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'rgba(255,255,255,0.5)', marginBottom: 12, paddingLeft: 12 }}><EditableText k="nav.section.tools" fallback="Ferramentas" /></div>
             <div onClick={() => { if (!editMode) { setEditMode(true); showToast('Modo edição ativado. Clique nos valores para editar.', 'info'); } else { showToast('Você já está em modo edição.', 'info'); } }} style={{ padding: '14px 16px', borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4, color: 'rgba(255,255,255,0.7)' }}>
-              <span style={{ fontSize: 20 }}>📝</span><span>Editar Dados</span>
+              <span style={{ fontSize: 20 }}>📝</span><span><EditableText k="nav.editDados" fallback="Editar Dados" /></span>
             </div>
             <div onClick={() => setSettingsOpen(true)} style={{ padding: '14px 16px', borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4, color: 'rgba(255,255,255,0.7)' }}>
-              <span style={{ fontSize: 20 }}>⚙️</span><span>Configurações</span>
+              <span style={{ fontSize: 20 }}>⚙️</span><span><EditableText k="nav.config" fallback="Configurações" /></span>
             </div>
             <div onClick={addVendor} style={{ padding: '14px 16px', borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4, color: 'rgba(255,255,255,0.7)' }}>
-              <span style={{ fontSize: 20 }}>➕</span><span>Adicionar Vendedor</span>
+              <span style={{ fontSize: 20 }}>➕</span><span><EditableText k="nav.addVendor" fallback="Adicionar Vendedor" /></span>
             </div>
             <div onClick={() => { setEditMode(!editMode); showToast(editMode ? 'Modo visualização' : 'Modo edição ativado', editMode ? 'success' : 'info'); }} style={{
               padding: '14px 16px', borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4,
               ...(editMode ? { background: `rgba(252,211,77,0.15)`, color: colors.yellow, fontWeight: 700 } : { color: 'rgba(255,255,255,0.7)' })
             }}>
-              <span style={{ fontSize: 20 }}>✏️</span><span>{editMode ? 'Modo Visualização' : 'Editar Painel'}</span>
+              <span style={{ fontSize: 20 }}>✏️</span><span>{editMode ? <EditableText k="nav.modoVis" fallback="Modo Visualização" /> : <EditableText k="nav.editPainel" fallback="Editar Painel" />}</span>
             </div>
           </div>
         </aside>
@@ -874,6 +1310,7 @@ export default function LeCardDashboard() {
       {/* Main Content */}
       <main style={{ marginLeft: sidebarHidden ? 0 : 280, padding: 40, flex: 1, minHeight: '100vh' }}>
         {page === 'dashboard' && <DashboardPage />}
+        {page === 'spreadsheet' && <SpreadsheetPage />}
         {page === 'projections' && <ProjectionsPage />}
         {page === 'arena' && <ArenaPage />}
         {page === 'monthlyKPIs' && <MonthlyKPIsPage />}
