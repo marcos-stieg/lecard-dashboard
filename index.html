@@ -1469,6 +1469,10 @@ function LeCardDashboard() {
             <div onClick={addVendor} style={{ padding: '14px 16px', borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4, color: 'rgba(255,255,255,0.7)' }}>
               <span style={{ fontSize: 20 }}>➕</span><span><EditableText k="nav.addVendor" fallback="Adicionar Vendedor" /></span>
             </div>
+            {/* Link para o painel de TV. Abre tv.html em nova aba */}
+            <div onClick={() => window.open('tv.html', '_blank')} style={{ padding: '14px 16px', borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4, background: 'rgba(139,92,246,0.15)', color: '#A78BFA', border: '1px solid rgba(139,92,246,0.3)' }}>
+              <span style={{ fontSize: 20 }}>📺</span><span>Modo TV</span>
+            </div>
             <div onClick={() => { setEditMode(!editMode); showToast(editMode ? 'Modo visualização' : 'Modo edição ativado', editMode ? 'success' : 'info'); }} style={{
               padding: '14px 16px', borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4,
               ...(editMode ? { background: `rgba(252,211,77,0.15)`, color: colors.yellow, fontWeight: 700 } : { color: 'rgba(255,255,255,0.7)' })
